@@ -1,0 +1,19 @@
+<IfModule mod_rewrite.c>
+RewriteEngine On 
+
+#RewriteRule ()$ public$1 [L]
+#RewriteRule ^(.*)$ public/$1 [L]
+#RewriteCond %{REQUEST_FILENAME} !-d
+
+RewriteCond %{REQUEST_FILENAME} !-d
+    RewriteCond %{REQUEST_FILENAME} !-f
+    RewriteRule ^ index.php [L]
+    #RewriteRule ^(.*)$ public/$1 [L]
+    #RewriteRule ^((?!public/).*)$ public/$1 [L,NC]
+    #RewriteRule ()$ public$1 [L]
+    #RewriteRule ^(.*)$ public/$1 [L]
+    #RewriteCond %{REQUEST_URI} !^public
+</IfModule>
+# HTID:8501817: DO NOT REMOVE OR MODIFY THIS LINE AND THE LINES BELOW
+php_value display_errors 1
+# DO NOT REMOVE OR MODIFY THIS LINE AND THE LINES ABOVE HTID:8501817:
