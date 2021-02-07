@@ -34,6 +34,8 @@ Route::post("filter","ImageController@setFilter");
 Route::post("polygon","ImageController@setPolygon");
 Route::post("effect","ImageController@setEffect");
 
+Route::post("compress","ImageController@setCompression");
+
 Route::get("download","ImageController@download");
 Route::get("get-image/{image}","ImageController@getImage");
 

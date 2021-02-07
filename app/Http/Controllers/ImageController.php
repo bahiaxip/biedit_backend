@@ -729,7 +729,9 @@ class ImageController extends Controller
     }
 
     public function setEffect(Request $request){
+
         if($request->post("name")){
+
             $name=$request->post("name");
             $email=$request->post("email");
             $effect=$request->post("effect");
@@ -749,15 +751,20 @@ class ImageController extends Controller
             }
             $path_newimage=public_path("storage").'/'.$test->path.$rand.".".$ext;
             //obtener versión Imagick instalada
-            //$version_imagick=Imagick::getVersion    
+            //$version_imagick=Imagick::getVersion
+
             if($im=new Imagick($path_image)){
            
                 //mejor llamar con $this por si se traslada la función.
                 //self::setEffectToImage($im,$width,$height,$path_newimage,$effect);
+
                 $this->setEffectToImage($path_image,$width,$height,$path_newimage,$effect);
             }
+            
             $size=filesize($path_newimage);
+
             list($newwidth,$newheight,$newimage_type)=getimagesize($path_newimage);
+
             $image=Image::create([
                 "title"=>"effect_".$test->title,
                 "detail"=>NULL,
@@ -769,12 +776,111 @@ class ImageController extends Controller
                 "size"=>$size,
                 "user_id"=>$test->user_id
             ]);
-            return response()->json(["image"=>$image]);    
+            return response()->json(["image"=>$size]);    
         }
         //if($im=new Imagick())
         
     }
+    
+    public function setCompression(Request $request){
+        if($request->post("image") && $request->post("email") && $request->post("range")){
+            $image=$request->post("image");
+            $email=$request->post("email");
+            $range=$request->post("range");
+            if($range<1 || $range>100)
+                return response()->json(["message"=>"El rango no es válido"]);
+            //obtenemos el user
+            $user=User::where("email",$email)->first();
+            //obtenemos la imagen comprobando si coincide el user y el nombre de la imagen
+            $test=Image::where("user_id",$user->id)->where("random_name",$image)->first();
+            if(!$test)
+                return response()->json(["message"=>"No existe esa imagen o no pertenece a ese usuario"]);
+            
+            $path_image=public_path("storage")."/".$test->path.$image;
+            $rand=Str::random(40);
+            
+            
+            if($test->ext=="jpg" || strtolower($test->ext)=="jpg" || $test->ext=="jpeg" ||strtolower($test->ext)=="jpeg" ){
 
+                $ext="jpg";
+                $path_newimage=public_path("storage").'/'.$test->path.$rand.".".$ext;
+                $im=new Imagick($path_image);
+                $im->setCompression(Imagick::COMPRESSION_JPEG);
+                $im->setImageCompressionQuality($range);
+                $im->writeImage($path_newimage);
+                
+
+            }else if($test->ext=="png" || strtolower($test->ext)=="png"){
+                $values=[16,32,64,128,255];
+                $color=$values[$range];
+                $ext="png";
+                $path_newimage=public_path("storage").'/'.$test->path.$rand.".".$ext;
+                //exec("convert ".$im." -colors 16 ".$new_path);
+                //el strip deja fuera ciertos metadatos como fecha y hora de la imagen,
+                //modelo de cámara y lente,nombre del programa que creó la imagen,etc...
+                exec("convert ".$path_image." -colors ".$color." ".$path_newimage);
+                
+            }
+            
+            $size=filesize($path_newimage);
+            list($width,$height,$image_type)=getimagesize($path_newimage);    
+            $image=Image::create([
+                "title"=>"effect_".$test->title,
+                "detail"=>NULL,
+                "width"=>$width,
+                "height"=>$height,
+                "path"=>$test->path,
+                "random_name"=>$rand.".".$ext,
+                "ext"=>$ext,
+                "size"=>$size,
+                "user_id"=>$test->user_id
+            ]);
+            
+            return response()->json(["image"=>$image]);
+
+        }
+        //si es jpeg un método 
+        //test jpg
+        //tipos de compresiones
+            $im->setCompression(Imagick::COMPRESSION_JPEG);
+                    //$im->setCompression(Imagick::COMPRESSION_ZIP);
+                    //$im->setCompression(Imagick::COMPRESSION_UNDEFINED);
+
+                //compresiones muy poco efectivas para png               
+                    //opción para versiones anteriores
+                            //$im->setCompressionQuality(25);
+
+        //opción de compression con setImageCompressionQuality
+                   $im->setImageCompressionQuality(quality);
+
+                    //opción de compressión con setOption rango (0-9)
+                            //$im->setOption("png:compression-level",1);
+
+                    //otra fórmula más larga para compression
+                            //$imagick=new Imagick();
+                            //$imagick->setCompression(Imagick::COMPRESSION_JPEG);
+                            //$imagick->setCompressionQuality(25);
+                            //$imagick->newPseudoImage(
+                                //$im->getImageWidth(),
+                                //$im->getImageHeight(),
+                                //"canvas:white"
+                            //);
+                            //$imagick->compositeImage(
+                                //$im,Imagick::COMPOSITE_ATOP,
+                                //0,
+                                //0
+                            //);                        
+                            //$imagick->setFormat("jpg");
+
+            
+        //si es png otro método
+
+               //la única efectiva de compresion (png8), exceptuando el método compressImage(), creado más abajo. 
+                            //$im->writeImage('png8:'.$new_path);
+            //(compresión) efectivo comando exec para comprimir imagen png
+                //exec("convert ".$im." -colors 16 ".$new_path);
+    }
+    
 
     public function setEffectToImage($im,$w,$h,$new_path,$type){
 
@@ -784,10 +890,12 @@ class ImageController extends Controller
         //getPixelRegionIterator
         //rotateImage
         //separateImageChannel
-        //setCompressionQuality (1-100) (2 opciones)
+        //setCompressionQuality (1-100) (2 opciones )
                 
         //setImageClipMask: recorte sin efecto y el resto de imagen con un efecto
-        //shearImage:inclinación de X y de Y y color de fondo
+        //shearImage:inclinación de X y de Y y color de fondo, al probar mostrar
+            //vista previa con transform:skew de CSS no es equivalente y transform con canvas dificil de redimensionar, además el 
+            //shearImage genera error en las pruebas con número 180 y otros...
         //textureImage:repetición de imágenes
         //transformImageColorSpace: Espacio de color(RGB,CMYK,CMY,SRGB...), canales(1,2,3,black,alfa)
         //separateImageChannel
@@ -846,46 +954,23 @@ class ImageController extends Controller
                 //    );
                 
             */
-                //tipos de compresiones
-                            //$im->setCompression(Imagick::COMPRESSION_JPEG);
-                            //$im->setCompression(Imagick::COMPRESSION_ZIP);
-                            //$im->setCompression(Imagick::COMPRESSION_UNDEFINED);
-            //compresiones muy poco efectivas                
-                //opción para versiones anteriores
-                            //$im->setCompressionQuality(25);
-                //opción de compression con setImageCompressionQuality
-                            //$im->setImageCompressionQuality(10);
-                //opción de compressión con setOption rango (0-9)
-                            //$im->setOption("png:compression-level",1);
-                //otra fórmula más larga para compression
-                            //$imagick=new Imagick();
-                            //$imagick->setCompression(Imagick::COMPRESSION_JPEG);
-                            //$imagick->setCompressionQuality(25);
-                            //$imagick->newPseudoImage(
-                                //$im->getImageWidth(),
-                                //$im->getImageHeight(),
-                                //"canvas:white"
-                            //);
-                            //$imagick->compositeImage(
-                                //$im,Imagick::COMPOSITE_ATOP,
-                                //0,
-                                //0
-                            //);                        
-                            //$imagick->setFormat("jpg");
-
-            //la única efectiva de compresion (png8), exceptuando el método compressImage() creado más abajo. 
-                            //$im->writeImage('png8:'.$new_path);
+                
 
             //Transformar a RGB o CMYK
-                //$im->transformImageColorSpace(Imagick::COLORSPACE_RGB);
-                //$im->transformImageColorSpace(Imagick::COLORSPACE_RGB);
+    //$im->transformImageColorSpace(Imagick::COLORSPACE_RGB);//return 13
+    //$im->transformImageColorSpace(Imagick::COLORSPACE_CMYK);//return 12
             //Separar canales de imagen CHANNEL_RED,CHANNEL_GREEN,CHANNEL_BLUE,
                 //CHANNEL_ALPHA,CHANNEL_CYAN,CHANNEL_MAGENTA,CHANNEL_YELLOW,CHANNEL_BLACK, CHANNEL_ALL,..., más en página oficial de PHP de constantes:
                 //https://www.php.net/manual/es/imagick.constants.php
                 //$im->separateImageChannel(Imagick::CHANNEL_YELLOW);
-                
-                exec("convert ".$im." -colors 16 ".$new_path);
+            //compression
+            //exec("convert ".$im." -colors 256 ".$new_path);
+            //comprobación de colores
+                $data=exec("convert ".$im." -colors 256 ".$new_path);
+                //$im->separateimagechannel(Imagick::CHANNEL_BLUE);
+    //$size=$im->getImageColorspace();
                 //$im->writeImage($new_path);
+                //return response()->json(["data"=>$size]);
                 
                 break;
             case "vertical":
@@ -897,7 +982,9 @@ class ImageController extends Controller
                 $im->writeImage($new_path);
                 break;
             case "vignette":
-                $im->vignetteImage(30,20,10,20);
+                //con fondo negro
+                //$im->setImageBackgroundColor("black");
+                $im->vignetteImage(30,20,10,20);                
                 $im->writeImage($new_path);
                 break;
             case "remolino":
@@ -1101,5 +1188,44 @@ class ImageController extends Controller
     }
     */
     
+
+    /*  CONSTANTES COLORSPACE EN PHP */
+
+    /* BEGIN - ALL AVAILABLE COLORSPACE CONSTANTS
+      Imagick::COLORSPACE_UNDEFINED; //0
+      Imagick::COLORSPACE_RGB; //1
+      Imagick::COLORSPACE_GRAY; //2
+      Imagick::COLORSPACE_TRANSPARENT; //3
+      Imagick::COLORSPACE_OHTA; //4
+      Imagick::COLORSPACE_LAB; //5
+      Imagick::COLORSPACE_XYZ; //6
+      Imagick::COLORSPACE_YCBCR; //7
+      Imagick::COLORSPACE_YCC; //8
+      Imagick::COLORSPACE_YIQ; //9
+      Imagick::COLORSPACE_YPBPR; //10
+      Imagick::COLORSPACE_YUV; //11
+      Imagick::COLORSPACE_CMYK; //12
+      Imagick::COLORSPACE_SRGB; //13
+      Imagick::COLORSPACE_HSB; //14
+      Imagick::COLORSPACE_HSL; //15
+      Imagick::COLORSPACE_HWB; //16
+      Imagick::COLORSPACE_REC601LUMA; //17
+      Imagick::COLORSPACE_REC601YCBCR; //18
+      Imagick::COLORSPACE_REC709LUMA; //19
+      Imagick::COLORSPACE_REC709YCBCR; //20
+      Imagick::COLORSPACE_LOG; //21
+      Imagick::COLORSPACE_CMY; //22
+      Imagick::COLORSPACE_LUV; //23
+      Imagick::COLORSPACE_HCL; //24
+      Imagick::COLORSPACE_LCH; //25
+      Imagick::COLORSPACE_LMS; //26
+      Imagick::COLORSPACE_LCHAB; //27
+      Imagick::COLORSPACE_LCHUV; //28
+      Imagick::COLORSPACE_SCRGB; //29
+      Imagick::COLORSPACE_HSI; //30
+      Imagick::COLORSPACE_HSV; //31
+      Imagick::COLORSPACE_HCLP; //32
+      Imagick::COLORSPACE_YDBDR; //33
+      END - ALL AVAILABLE COLORSPACE CONSTANTS */
     
 }
