@@ -9,6 +9,7 @@ use Illuminate\Support\Str;
 use App\Classes\MethodsImage;
 use Exception;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Facades\File;
 use App\Helpers\CustomHelper;
 use Imagick;
 use ImagickDraw;
@@ -37,27 +38,42 @@ class ImageController extends Controller
         $this->methods=new MethodsImage();
 
     }
-    public function index()
+    public function index(Request $request)
     {        
-        
-        $image=Image::orderBy("id","DESC")->paginate(10);
+        if($request->post("api_token")){
+            $api_token=$request->post("api_token");
+            $email=$request->post("email");
+
+            
+            $user=User::where("api_token",$api_token)->where("email",$email)->first();
+            if(!$user){
+                //return ...
+            }
+
+            $image=Image::orderBy("id","DESC")->where("user_id",$user->id)->paginate(10);
+
         //En caso eliminar una imagen se asigna la misma página en la que se está
         //eliminando, pero si es la última de la página que reste una página y se 
         //vaya a la anterior, siempre y cuando no sea la primera página(current_page)
 
         //Para acceder a una de las propiedades protected como current_page es necesario lo siguiente:
-        $current_page=json_decode($image->toJSON())->current_page;
-        if(count($image)==0 && $current_page != 0){
-            $page=Request()->page;
-            //cambiamos el page (que trae la url) a la página anterior si en esa 
-            //página no quedan resultados
-            Request()->merge(["page"=>$page-1]);
-            //y volvemos a realizar la consulta con el page cambiado
-            $image=Image::orderBy("id","DESC")->paginate(10);
-        }
-        //$ima=json_decode($image);
+            $current_page=json_decode($image->toJSON())->current_page;
+            //si no quedan resultados en esa página redirige a la página 
+            //anterior, siempre que no sea la página 0
+            if(count($image)==0 && $current_page != 0){
+                $page=Request()->page;
+                //cambiamos el page (que trae la url) a la página anterior si en esa 
+                //página no quedan resultados
+                Request()->merge(["page"=>$page-1]);
+                //y volvemos a realizar la consulta con el page cambiado
+                $image=Image::orderBy("id","DESC")->where("user_id",$user->id)->paginate(10);
+            }
+            //$ima=json_decode($image);
         
-        return $image;
+        return $image;    
+        }
+
+        
         
     }
     
@@ -128,6 +144,24 @@ class ImageController extends Controller
         //obtenemos los tipos de rutas necesarios para la db
                 $path="img/".$email."/";
                 $random_name=str_replace("img/".$email."/", "",$path_image);
+                $rand=Str::random(40);
+                //$imagin=Storage::disk("public")->copy($path_image,$path.$rand."."jpg");
+                //$data2=Storage::disk("public")->getVisibility($path."hola.jpg");
+
+                //chmod(public_path("storage")."/".$path."hola.jpg",777);
+                $thumb=NULL;
+                $space_color=NULL;
+                if($im=new Imagick(public_path("storage")."/".$path.$random_name)){
+                    $space_color_int=$im->getImageColorspace();
+                    $values=["UNDEFINED","RGB","GRAY","TRANSPARENT","OHTA","LAB","XYZ","YCBCR","YCC","YIQ","YPBPR","YUV","CMYK","SRGB","HSB","HSL","HWB","REC601LUMA","REC601YCBCR","REC709LUMA","REC709YCBCR","LOG","CMY","LUV","HCL","LCH","LMS","LCHAB","LCHUV","SCRGB","HSI","HSV","HCLP","YDBDR",];
+                    $space_color=$values[$space_color_int];
+                    $im->thumbnailImage(100,100,true,true);
+                    $im->writeImage(public_path("storage")."/".$path.$rand.".".$ext);
+                    $thumb=$rand.".".$ext;
+                    
+                }
+                //$datas=public_path("storage")."/".$path."hola.jpg";
+                    
         //creamos registro en la db
                 $image=Image::create([
                     "title" =>  $title,
@@ -136,8 +170,10 @@ class ImageController extends Controller
                     "height"=>  $height,
                     "path"  =>  $path,
                     "random_name"=>$random_name,
+                    "thumb" => $thumb,
                     "ext"   =>  $ext,
                     "size"  => $size,
+                    "space_color"=>$space_color,
                     "user_id"=> $user->id
                 ]);
 
@@ -341,15 +377,17 @@ class ImageController extends Controller
                                 "height"=>$resizedImage[2],
                                 "path"=>$path,
                                 "random_name"=>$rand.".".$image_db->ext,
+                                "thumb" => NULL,
                                 "ext"=>$image_db->ext,
                                 "size"=>$size,
+                                "space_color"=>$image_db->space_color,
                                 "user_id"=>$user->id
                             ]);
                         return response()->json(["message" => $resizedImage[0]]);     
                         //return $resizedImage;
                         //return response()->json(["error"=>$resizedImage]);    
                     }else{
-                        return response()->json(["error"=>"No existe esa imagen en la base de datos"]);
+                        return response()->json(["error"=>"No existe esa imagen en la base de datos: ".$src]);
                     }
                     
                 }else{
@@ -382,6 +420,7 @@ class ImageController extends Controller
     
     public function destroy($id,Request $request)
     {
+        //falta comprobar si la imagen pertenece al mismo user_id
         $page=null;
         if($request->post()){            
             $page=$request->post("dato");
@@ -468,8 +507,10 @@ class ImageController extends Controller
                     "height" =>$data->height,
                     "path" => $original_image->path,
                     "random_name"=>$rand.".".$original_image->ext,
+                    "thumb" => NULL,
                     "ext" => $original_image->ext,
                     "size" =>$original_image->size,
+                    "space_color"=>$original_image->space_color,
                     "user_id" => $user->id
                 ]);
                 return response()->json(["message" => "La imagen se ha recortado y ha sido almacenada en el álbum"]);
@@ -561,8 +602,10 @@ class ImageController extends Controller
                 "height"=>$height,
                 "path"=>$test->path,
                 "random_name"=>$rand.'.'.$test->ext,
+                "thumb" => NULL,
                 "ext"=>$test->ext,
                 "size"=>$size,
+                "space_color"=>$test->space_color,
                 "user_id"=>$test->user_id
             ]);
             
@@ -713,8 +756,10 @@ class ImageController extends Controller
                 "height"=>$new_height,
                 "path"=>$test->path,
                 "random_name"=>$rand.'.png',
+                "thumb" => NULL,
                 "ext"=>"PNG",
                 "size"=>$size,
+                "space_color"=>$test->space_color,
                 "user_id"=>$test->user_id
             ]);
             /*
@@ -772,8 +817,10 @@ class ImageController extends Controller
                 "height"=>$newheight,
                 "path"=>$test->path,
                 "random_name"=>$rand.".".$ext,
+                "thumb" => NULL,
                 "ext"=>$ext,
                 "size"=>$size,
+                "space_color"=>$test->space_color,
                 "user_id"=>$test->user_id
             ]);
             return response()->json(["image"=>$size]);    
@@ -831,8 +878,10 @@ class ImageController extends Controller
                 "height"=>$height,
                 "path"=>$test->path,
                 "random_name"=>$rand.".".$ext,
+                "thumb" => NULL,
                 "ext"=>$ext,
                 "size"=>$size,
+                "space_color"=>$test->space_color,
                 "user_id"=>$test->user_id
             ]);
             
@@ -1188,6 +1237,10 @@ class ImageController extends Controller
     }
     */
     
+    /*
+    constantes asignadas en un array de strings
+    $values=["UNDEFINED","RGB","GRAY","TRANSPARENT","OHTA","LAB","XYZ","YCBCR","YCC","YIQ","YPBPR","YUV","CMYK","SRGB","HSB","HSL","HWB","REC601LUMA","REC601YCBCR","REC709LUMA","REC709YCBCR","LOG","CMY","LUV","HCL","LCH","LMS","LCHAB","LCHUV","SCRGB","HSI","HSV","HCLP","YDBDR",];
+    */
 
     /*  CONSTANTES COLORSPACE EN PHP */
 

@@ -8,7 +8,7 @@ use App\User;
 class Image extends Model
 {
     protected $fillable= [
-    	"title","detail","width","height","path","random_name","ext","size","user_id"
+    	"title","detail","width","height","path","random_name","thumb","ext","size","space_color","user_id"
     ];
 
     public function user(){

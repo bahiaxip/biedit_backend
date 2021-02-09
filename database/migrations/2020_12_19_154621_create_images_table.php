@@ -17,8 +17,10 @@ class CreateImagesTable extends Migration
             $table->string("height");
             $table->string("path");
             $table->string("random_name");
+            $table->string("thumb")->nullable();
             $table->string("ext");
             $table->string("size");
+            $table->string("space_color")->nullable();
             $table->bigInteger("user_id")->unsigned();            
             
 
