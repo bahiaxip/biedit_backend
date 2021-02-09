@@ -38,9 +38,14 @@ class ImageController extends Controller
         $this->methods=new MethodsImage();
 
     }
+    //todas las imágenes
+    public function totalIndex(){
+
+    }
     public function index(Request $request)
     {        
         if($request->post("api_token")){
+
             $api_token=$request->post("api_token");
             $email=$request->post("email");
 
@@ -49,7 +54,12 @@ class ImageController extends Controller
             if(!$user){
                 //return ...
             }
-
+            //si existe total está destinado para el efecto composite, tb se //podría filtrar para no incluir el elemento que contiene la imagen
+            //principal pero se realiza en el frontend con computed
+            if($request->post("total")){
+                $image=Image::orderBy("id","DESC")->where("user_id",$user->id)->whereNotNull("thumb")->get();
+                return response()->json(["images"=>$image]);
+            }
             $image=Image::orderBy("id","DESC")->where("user_id",$user->id)->paginate(10);
 
         //En caso eliminar una imagen se asigna la misma página en la que se está
@@ -452,14 +462,22 @@ class ImageController extends Controller
     }
 
     public function getImage($image){
+        //falta comprobar usuario y comprobar la imagen de otra forma, y comprobar en el servidor, por ejemplo con file_exists o similar
         if($image){
-            $ima=Image::where("random_name",$image)->first();
+            $ima;            
+            $ima_mainimage=Image::where("random_name",$image)->first();
+            $ima_thumb=Image::where("thumb",$image)->first();
+            if($ima_mainimage )
+                $ima=$ima_mainimage;
+            if($ima_thumb)
+                $ima=$ima_thumb;
+            
     //es necesario añadir public o public_path a la ruta si se solicita desde apache,
     //con live server de Laravel no da ningún error
             //return response()->file('public/'.$ima["path"].$ima["random_name"]);
             //return response()->file(public_path("storage").'/'.$ima["path"].$ima["random_name"]);    
-            return response()->file(public_path("storage").'/'.$ima["path"].$ima["random_name"]);    
-            //return response()->json(["data"=>"llega a getImage"]);    
+            return response()->file(public_path("storage").'/'.$ima["path"].$image);    
+            //return response()->json(["data"=>$image]);    
         }
     }
 
