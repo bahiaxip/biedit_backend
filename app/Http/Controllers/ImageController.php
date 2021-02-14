@@ -1130,6 +1130,553 @@ class ImageController extends Controller
     public function compressImage($image,$new_image){
         exec("convert ".$image." -colors 64 ".$new_image);
     }
+
+    //este método asigna 2 imágenes y las fusiona asignando las medidas de la segunda
+    //imagen y un gradiente de transparencia gris
+    public function compositeImage(Request $request){
+
+        $d=$this->testRequestPost($request,["email","imageSrc","imageId"]);
+        if(!$d)  
+            return response()->json(["message"=>"Faltan datos en el envío"]);
+        $email=$d->email;
+        $image=$d->imageSrc;
+        $image_id=$d->imageId;
+
+        //obtenemos el user
+        $user=User::where("email",$email)->first();
+        //obtenemos la imagen comprobando si coincide el user y el nombre de la imagen
+        $test=Image::where("user_id",$user->id)->where("random_name",$image)->first();
+        if(!$test)
+            return response()->json(["message"=>"No existe esa imagen o no pertenece a ese usuario"]);
+        $test2=Image::where("user_id",$user->id)->where("id",$image_id)->first();
+        $img1_path=public_path("storage")."/".$test->path.$test->random_name;
+        //$img1=new Imagick($img1_path);
+        $img1=new Imagick();
+        $img1->readImage($img1_path);
+        
+        $img2_path=public_path("storage")."/".$test2->path.$test2->random_name;
+        
+        $wm=new Imagick($img2_path);
+        
+        $img2=new Imagick($img2_path);
+        //redimensionamos a las medidas de la segunda imagen
+    //Habría que comprobar con imágenes de distintas medidas x si es necesario
+    //realizar otras comprobaciones más específicas para asignar la redimensión a la
+    //otra imagen si fuera más conveniente
+        $img1->resizeimage(
+            $img2->getImageWidth(),
+            $img2->getImageHeight(),
+            Imagick::FILTER_LANCZOS,
+            1
+        );
+        //creamos imagen de opacidad con un gradiente
+        $opacity=new Imagick();
+        $opacity->newPseudoImage(
+            $img1->getImageHeight(),
+            $img1->getImageWidth(),
+            "gradient:gray(10%)-gray(90%)"
+        );
+        $rand=Str::random(40);
+
+        //rotamos el gradiente anteriormente creado
+        $opacity->rotateimage("black",90);
+        $img2->compositeImage($opacity, Imagick::COMPOSITE_COPYOPACITY,0,0);
+        $img1->compositeImage($img2, Imagick::COMPOSITE_ATOP,0,0);
+        //obtenemos espacio de color de la nueva imagen
+        $space_color_int=$img1->getImageColorspace();
+        $values=["UNDEFINED","RGB","GRAY","TRANSPARENT","OHTA","LAB","XYZ","YCBCR","YCC","YIQ","YPBPR","YUV","CMYK","SRGB","HSB","HSL","HWB","REC601LUMA","REC601YCBCR","REC709LUMA","REC709YCBCR","LOG","CMY","LUV","HCL","LCH","LMS","LCHAB","LCHUV","SCRGB","HSI","HSV","HCLP","YDBDR",];
+        $space_color=$values[$space_color_int];
+        $final_ext=$test->ext;
+        //si alguna de las dos es png asignamos png
+        //se podría también comprobar con getImageFormat()
+        if($test->ext=="PNG" || $test2->ext=="PNG")
+            $final_ext="png";
+        $path_newimage=public_path("storage")."/".$test->path.$rand.".".$final_ext;
+        //guardamos imagen
+        $img1->writeImage($path_newimage);
+        //asignamos medidas, peso y formato de imagen para la db
+        list($width,$height,$image_type)=getimagesize($path_newimage);
+        $size=filesize($path_newimage);
+
+        $type=$this->testImageType($image_type);
+        if(!$type)
+            return response()->json(["message"=>"Hubo un error con la extensión de la imagen"]);
+        //pasamos a minúsculas para la extensión en el campo random_name, pero
+        //no para el campo ext que los mantenemos en mayúsculas que devuelve 
+        //el método testImageType()
+        $ext=strtolower($type);
+        $image=Image::create([
+            "title"=>"composite_".$test->title."_".$test2->title,
+            "detail"=>NULL,
+            "width"=>$width,
+            "height"=>$height,
+            "path"=>$test->path,
+            "random_name"=>$rand.".".$ext,
+            "thumb" => NULL,
+            "ext"=>$type,
+            "size"=>$size,
+            "space_color"=>$space_color,
+            "user_id"=>$test->user_id
+        ]);
+        
+        return response()->json(["data"=>$image]);
+    }
+
+    public function testImageType($type){
+        if($type==1)
+            return "GIF";
+        elseif($type==2)
+            return "JPG";
+        elseif($type==3)
+            return "PNG";
+        else{
+            return;
+        }
+    }
+
+    //Establecer marca de agua con opción centrado, o acomodado en una de las 4 esquinas:
+    //top-left,top-right,bottom-left,bottom-right
+    public function setWaterMark(Request $request){
+
+        $d=$this->testRequestPost($request,["email","imageSrc","imageId"]);
+        if(!$d)  
+            return response()->json(["message"=>"Faltan datos en el envío"]);
+        $email=$d->email;
+        $image=$d->imageSrc;
+        $image_id=$d->imageId;
+        $position=$d->position;
+
+        //obtenemos el user
+        $user=User::where("email",$email)->first();
+        //obtenemos la imagen comprobando si coincide el user y el nombre de la imagen
+        $test=Image::where("user_id",$user->id)->where("random_name",$image)->first();
+        if(!$test)
+            return response()->json(["message"=>"No existe esa imagen o no pertenece a ese usuario"]);
+        $test2=Image::where("user_id",$user->id)->where("id",$image_id)->first();
+
+
+        $img1_path=public_path("storage")."/".$test->path.$test->random_name;
+        $img2_path=public_path("storage")."/".$test2->path.$test2->random_name;
+
+
+        //las imágenes en imagick se pueden asignar mediante 1 paso: 
+            //$im=new Imagick("ruta de imagen") 
+        //o mediante 2 pasos:
+            //$im=new Imagick(), segundo:
+            //$im->readImage(ruta de imagen);
+
+        //imagen de fondo
+        $im=new Imagick($img1_path);
+        //marca de agua (watermark)
+        $wm=new Imagick($img2_path);
+
+        //comprobamos si las imágenes tienen canal de transparencia
+    //getImageAlphaChannel() permite comprobar si una imagen tiene transparencia
+        //si no tiene transaparencia devuelve 0, si tiene, devuelve 1, 
+        //si devuelve otro entero distinto, se puede igualar con las constantes o 
+        //directamente con los enteros asociados a las constantes colorspace:
+        //la lista  de colorspace y enteros asociados se encuentra al final de este documento
+        
+        //si la imagen 1 tiene transparencia, para asegurarse se puede establecer el  formato en png
+        $testTransIm=$im->getImageAlphaChannel();
+        $dato="no tiene ";
+        if($testTransIm){
+            $im->setimageformat("png");
+            $dato="si tiene ";
+        }
+    //setImageAlphaChannel establece el canal alpha (transparencia) a una imagen 
+        //si la imagen de la marca de agua (watermark) no tiene transparencia 
+        //se crea el canal alpha
+        $testTransWm=$wm->getImageAlphaChannel();        
+        //si la marca de agua no tiene transparencia se establece transparencia y 
+        //formato png, nos aseguramos de que el wm siempre tendrá transparencia
+        if(!$testTransWm){
+            //si no tiene transparencia(canal alpha), se asigna transparencia 
+            $wm->setImageAlphaChannel(Imagick::ALPHACHANNEL_ACTIVATE);
+            
+        }
+        //se establece formato png aunque ya lo sea de esa forma se guarda la extensión 
+        //png en minúsculas
+        $wm->setimageformat("png");
+
+    //comprobamos medidas para redimensionar
+        $im_width=$im->getImageWidth();
+        $im_height=$im->getImageHeight();
+        $wm_width=$wm->getImageWidth();
+        $wm_height=$wm->getImageHeight();
+
+
+        $x;$y;
+        $option="centered";
+        $param="top_left";
+
+        //asignamos posicion centrada        
+        if($option=="centered"){
+    //si la imagen es menor que wm redimensionamos el wm a la misma de la imagen
+            if($im_height<$wm_height || $im_width<$wm_width){
+                $wm->scaleImage($im_width,$im_height);
+                //actualizamos medidas
+                $wm_width=$wm->getImageWidth();
+                $wm_height=$wm->getImageHeight();
+            }
+        
+        
+            $x=($im_width-$wm_width) /2;
+            $y=($im_height-$wm_height)/2;
+            //si es esquina abajo derecha
+        }
+        elseif($option=="corner"){
+            $divisor=3;
+            $wm->scaleImage($wm_width/$divisor,$wm_height/$divisor);
+
+            $wm_width=$wm->getImageWidth();
+            $wm_height=$wm->getImageHeight();
+            
+            
+            if($param=="bottom_right"){
+                $x=$im_width-$wm_width;
+                $y=$im_height-$wm_height;
+            }elseif($param=="top_right"){
+                $x=$im_width-$wm_width;
+                $y=0;
+            }elseif($param=="bottom_left"){
+                $x=0;
+                $y=$im_height-$wm_height;
+            }elseif($param=="top_left"){
+                $x=0;
+                $y=0;
+            }
+        }
+
+        
+        
+        
+    //asignamos posición esquina derecha abajo
+        
+        //si la marca de agua tiene transparencia (siempre tiene ya que si no tiene se crea) y la imagen 1 no la tiene, la transparencia se puede realizar con el método evaluateImage
+        if(!$testTransIm){
+            $opacity=0.4;
+            $wm->evaluateImage(Imagick::EVALUATE_MULTIPLY, $opacity, Imagick::CHANNEL_ALPHA);
+            //efecto over si la imagen 1 no  tiene transparencia y se crea con evaluateImage, necesario revisar opciones con constantes EVALUATE_XXXX
+            $im->compositeImage($wm,Imagick::COMPOSITE_OVER,$x,$y);
+            //$im->compositeImage($wm,Imagick::COMPOSITE_MULTIPLY,0,0);
+            
+        }else{
+
+            //$im->compositeImage($wm,Imagick::COMPOSITE_OVER,0,0);
+            $im->compositeImage($wm,Imagick::COMPOSITE_MULTIPLY,$x,$y);
+        }
+        
+
+
+
+        
+//transparencia con transparentPaintImage()
+    //Aunque no es el más recomendable para crear transparencia, ya que el color pasado
+    //no transparenta, se puede hacer pasando true al final
+
+    //permite convertir un color específico en transparente
+        //el $pixel no devuelve nada, solo se puede usar para operaciones con Imagick
+        //para obtenerlo es necesario llamar al método getColor(): $pixel->getColor()
+        //el método getImagePixelColor es muy útil cuando se quiere hacer transparente
+        // un fondo de un mismo color
+        //$pixel=$wm->getImagePixelColor(1,1);
+
+        //si en lugar de false se coloca true pinta cualquier pixel que no coincida 
+        //con el color especificado. En el ejemplo siguiente el $pixel se obtiene de la misma imagen, pero se puede asignar cualquier color, por ejemplo): 
+        //rgb(0,0,0) 
+
+        //$wm->transparentPaintImage($pixel,0.5,1,true);
+
+//Distintas opciones con composite interesantes, falta revisar los efectos 
+//con el método evaluateImage
+
+        //$im->compositeImage($wm,Imagick::COMPOSITE_OVER,0,0);
+    //este permite transparentar con canal alpha (transparencia) en imagen 1
+        //$im->compositeImage($wm,Imagick::COMPOSITE_MULTIPLY,0,0);
+    //igual que el multiply pero convierte el $wm en escala de grises primero.
+        //$im->compositeImage($wm,Imagick::COMPOSITE_BUMPMAP,0,0);
+    //se superpone la imagen 1 solo donde no existe transparencia en el wm, la zona 
+    //transparente del wm se mantiene transparente
+        //$im->compositeImage($wm,Imagick::COMPOSITE_COPYOPACITY,0,0);
+    //similar al COPYOPACITY
+        //$im->compositeImage($wm,Imagick::COMPOSITE_DSTATOP,0,0);
+    //se crea una transparencia en todo lo visible (sin transparencia) de la imagen 1 
+        //$im->compositeImage($wm,Imagick::COMPOSITE_OUT,0,0);
+    //se crea transparencia en todo lo visible del wm
+        //$im->compositeImage($wm,Imagick::COMPOSITE_DSTOUT,0,0);
+    //se superpone la imagen 1 pero solo donde coincide con la parte visible del wm, el resto se mantiene transparente
+        //$im->compositeImage($wm,Imagick::COMPOSITE_DSTIN,0,0);
+    //se superpone el wm pero solo donde coincide con la parte visible del wm, el resto se mantiene transparente
+        //$im->compositeImage($wm,Imagick::COMPOSITE_IN,0,0);
+    //se crea transparencia total solo donde coincides las partes visibles de los dos
+        //$im->compositeImage($wm,Imagick::COMPOSITE_XOR,0,0);     
+    //mezcla la imagen
+        //$im->compositeImage($wm,Imagick::COMPOSITE_BLEND,0,0);
+        $im->writeImage(public_path("storage")."/".$test->path."watermark.".$wm->getImageFormat());
+
+        return response()->json(["data"=>$dato]);
+
+        
+    }
+
+    public function createWaterMark(Request $request){
+        $post_data=["email","inputWm","FontSize"];
+        $d=$this->testRequestPost($request,$post_data);
+        if(!$d)  
+            return response()->json(["message"=>"Faltan datos en el envío"]);
+        $email=$d->email;
+        $input_wm=$d->inputWm;
+        $font_size=$d->FontSize;
+        
+
+        //obtenemos el user
+        $user=User::where("email",$email)->first();
+        //obtenemos la imagen comprobando si coincide el user y el nombre de la imagen
+        
+        /*
+        $img1_path=public_path("storage")."/".$test->path.$test->random_name;
+
+        $im=new Imagick($img1_path);
+        $width=$im->getImageWidth();
+        $height=$im->getImageHeight();
+        */
+
+        $ima=new Imagick();
+        $draw=new ImagickDraw();
+        $pixel=new ImagickPixel("gray");
+
+        //$ima->newImage($width/2,$height/2,$pixel);
+
+        //color de texto
+        $draw->setFillColor("white");
+
+        //fuente
+        $draw->setFont("Bookman-DemiItalic");
+        $draw->setFontSize(20);
+
+//opción 1 de centrar el texto en la imagen
+        //si no se establece fuente funciona correctamente
+    //$draw->setGravity(Imagick::GRAVITY_NORTHWEST);    
+    //$draw->setGravity(Imagick::GRAVITY_CENTER);
+    //$image->annotateImage($draw,0,0,0, "lo que quiera");
+//opción2
+    //funciona correctamente pero redimensiona la imagen al tamaño del texto
+    /*
+        $geo=$im->getImageGeometry();
+        $ciWidth=$geo["width"];
+        $ciHeight=$geo["height"];
+        $ciAspect=$ciWidth/$ciHeight;
+
+    $textline="lo que quiera mañána o pasado";
+    $metricsline=$im->queryFontMetrics($draw,$textline);
+    $textWidth=$metricsline["textWidth"];
+
+    $diWidth=$textWidth+20;
+    $diHeight=($textWidth + 20)*$ciAspect;
+    $im->scaleImage($diWidth,$diHeight);
+    $ima->newImage($diWidth,$diHeight,$pixel);
+
+    $ima->compositeImage($im,Imagick::COMPOSITE_DEFAULT,0,0);
+    $ima->annotateImage($draw,0,0,0,$textline);
+    */
+//opción 3 funciona correctamente (creación de label con convert)
+    //$ruta=public_path("storage")."/".$test->path."watermark.gif";
+    $font_ubuntu=public_path("storage")."/fonts/Ubuntu-Title.ttf";
+    $font_designer=public_path("storage")."/fonts/designer-block.ttf";
+    $font_fontanero=public_path("storage")."/fonts/Fontanero-FFP.ttf";
+    $font_nikaia=public_path("storage")."/fonts/Nikaia_Medium.ttf";    
+    $font_usuzi=public_path("storage")."/fonts/USUZI.TTF";
+    $font_abduction=public_path("storage")."/fonts/abduction2002.ttf";
+    $font_corporate=public_path("storage")."/fonts/corporateroundedextrabold.ttf";
+    $font_timesnewroman=public_path("storage")."/fonts/timesbd.ttf";
+    $font_zerogirl=public_path("storage")."/fonts/ZEROGIRL.TTF";
+    $font_yanone=public_path("storage")."/fonts/Yanone-Bold.otf";
+    $font_glsnecb=public_path("storage")."/fonts/GLSNECB.TTF";
+    $font_futura=public_path("storage")."/fonts/FUTURAB.ttf";
+    $ruta=public_path("storage")."/img/".$email."/watermark3.png";
+    $font=public_path("storage")."/fonts/LOKICOLA.TTF";
+    $font2="Arial";
+    
+    //necesario pasar \" con $input_wm en lugar de concatenar para que detecte los espacios de la cadena
+
+    exec("convert -background black -fill white -font ".$font_futura." -pointsize ".$font_size." label:\"$input_wm\" ".$ruta);
+    //exec("convert -background transparent -fill '#000' -pointsize ".$font_size." label:\"$input_wm\" ".$ruta);
+    
+    //$ima=new Imagick($ruta);
+        //crear texto
+    //    $image->annotateImage($draw,10,45,0,"lo que quiera");
+        //$im->setImageFormat("png");
+        //$im->setGravity(Imagick::GRAVITY_CENTER);
+        //$im->compositeImage($ima,Imagick::COMPOSITE_OVER,0,0);
+        //$im->writeImage(public_path("storage")."/".$test->path."createwatermark.png");
+        //$mark->setSize($width,$height);
+
+        return response()->json(["data"=>"correcto"]);
+    }
+
+//Información de interés:
+//para establecer canal alpha a una imagen
+    //$im->setImageAlphaChannel(Imagick::ALPHACHANNEL_ACTIVATE);
+//para extraer una parte de la imagen: getImageRegion(ancho,alto,x,y)
+    //puede ser útil para hacerla transparente
+    //ejemplo:
+        //$im = new Imagick();
+        //$im->newImage(100,100, 'red');
+        //$im->setImageAlphaChannel(Imagick::ALPHACHANNEL_ACTIVATE); // make sure it has an alpha channel
+        //$box=$im->getImageRegion(30,30,15,15);
+        //$box->setImageAlphaChannel(Imagick::ALPHACHANNEL_TRANSPARENT);
+        //$im->compositeImage($box,Imagick::COMPOSITE_REPLACE,15,15);
+
+//para reemplazar el canal alpha(transparencia) de un png se puede 
+        //reemplazar por otro color, blanco por ejemplo:
+        //$im->setImageBackgroundColor("#FFFFFF");
+        //mergeImageLayers fusiona las capas (por ejemplo archivos psd)
+        //$imagick=$im->mergeImageLayers(Imagick::LAYERMETHOD_FLATTEN);
+
+//para crear un recurso de imagen con transparencia se puede utilizar:
+        //imagecolorallocatealpha (idéntico a imagecolorallocate pero sin transparencia)
+        //para ello primero es necesario crear un recurso de imagen con 
+        //imagecreate o imagecreatetruecolor aunque se recomienda imagecreatetruecolor:
+        //$image=imagecreatetruecolor(width, height) o imagecreate(width,height)
+        //por ejemplo de 300 X 300
+            //$image=imagecreatetruecolor(300,300);
+
+        //y ahora con imagecolorallocate y  imagecolorallocatealpha se asigna el 
+        //color (y en éste último también la transparencia)
+        //por ejemplo un fondo blanco y borde negro (sin transparencia):
+            //el fondo:
+            //$back=imagecolorallocate($image,255,255,255); 
+            //el borde:
+            //$border=imagecolorallocate($image,0,0);
+        //ahora creamos un rectángulo dentro de la imagen (incorporando el fondo y el borde)
+            //relleno del fondo
+            //imagefilledrectangle($image,0,0,300-1,300-1,$back);
+            //borde
+            //imagerectangle($image,0,0,300-1,300-1,$border);
+        //ahora creamos unos círculos pero esta vez con imagecolorallocatealpha, es 
+        //decir, con transparencia:
+        //asignamos unas medidas para los círculos:
+            //$yellow_x = 100;
+            //$yellow_y = 75;
+            //$red_x    = 120;
+            //$red_y    = 165;
+            //$blue_x   = 187;
+            //$blue_y   = 125;
+            //$radius   = 150;
+    //Nota: por defecto el imagecreate() crea una imagen en blanco, mientras que el
+    //createimagetruecolor() (más recomendado) la crea en negro. 
+    //Tanto imagecolorallocate como imagecolorallocatealpha son representados con el
+    //color pasado en los parámetros.
+        //asignamos los colores con imagecolorallocatealpha:
+            //$yellow=imagecolorallocatealpha($image, 255, 255, 0, 75);
+            //$red=imagecolorallocatealpha($image, 255, 0, 0, 75);
+            //$blue=imagecolorallocatealpha($image, 0, 0, 255, 75);
+
+        //Generamos los círculos pasando los colores
+            //imagefilledellipse($image, $yellow_x, $yellow_y, $radius, $radius, $yellow);
+            //imagefilledellipse($image, $red_x, $red_y, $radius, $radius, $red);
+            //imagefilledellipse($image, $blue_x, $blue_y, $radius, $radius, $blue);
+
+        //Guardamos la imagen 
+            //con writeImage
+            //$image->writeImage("rutadeimagen".$image);
+            //con imagepng
+            //imagepng("rutadeimagen".$image);
+
+
+//asignar fondo transparente
+        //$wm->setBackgroundColor(new ImagickPixel("transparent"));
+
+//Para hacer transparente un color específico transparentPaintImage()
+            
+            //$pixel=$wm->getImagePixelColor(1,1);
+        //si en lugar de false se coloca true pinta cualquier pixel que no coincida 
+        //con el color especificado. En el ejemplo siguiente el $pixel se obtiene de la misma imagen, pero se puede asignar cualquier color, por ejemplo): 
+        //rgb(0,0,0) 
+
+            //$wm->transparentPaintImage($pixel,0.5,1,false);
+
+//Para pintar píxeles 
+        //pinta el pixel en la coordenada 1, 1 y todos los píxeles cercanos que 
+        //coinciden con el color (anteriormente extraido) $pixel.
+        //$img1->floodFillPaintImage("black",2500,$pixel,1,1,false);
+
+//para establecer el color de un fondo
+        //$im->setImageBackgroundColor("#FFFFFF");
+
+//interesante la opción de fusionar capas (útil para archivos psd) (por revisar)
+        //mergeImageLayers fusiona las capas (por ejemplo archivos psd)
+        //$imagick=$im->mergeImageLayers(Imagick::LAYERMETHOD_FLATTEN);
+
+//revisar 
+    //$imagick->clear();
+    //$imagick->destroy();
+
+
+//posible efecto con 50% de transparencia con composite
+        /*
+        <?php
+        $im = new Imagick('base.jpg');
+        $wm = new Imagick();
+        $wm->setBackgroundColor(new ImagickPixel('transparent'));
+        $wm->readImage('watermark.png');
+        $wm->setImageFormat('png32');
+        $wm->setImageAlpha(0.5);
+        $im->compositeImage($wm, Imagick::COMPOSITE_OVER, 0, 0);
+        $im->writeImage('final.jpg');
+        ?>
+        */
+
+
+
+    //constantes equivalentes de getimagesize (en este proyecto solo 3 posibles: 1,2 o 3)
+/*
+    [IMAGETYPE_GIF] => 1
+[IMAGETYPE_JPEG] => 2
+[IMAGETYPE_PNG] => 3
+[IMAGETYPE_SWF] => 4
+[IMAGETYPE_PSD] => 5
+[IMAGETYPE_BMP] => 6
+[IMAGETYPE_TIFF_II] => 7
+[IMAGETYPE_TIFF_MM] => 8
+[IMAGETYPE_JPC] => 9
+[IMAGETYPE_JP2] => 10
+[IMAGETYPE_JPX] => 11
+[IMAGETYPE_JB2] => 12
+[IMAGETYPE_SWC] => 13
+[IMAGETYPE_IFF] => 14
+[IMAGETYPE_WBMP] => 15
+[IMAGETYPE_JPEG2000] => 9
+[IMAGETYPE_XBM] => 16
+[IMAGETYPE_ICO] => 17
+[IMAGETYPE_UNKNOWN] => 0
+[IMAGETYPE_COUNT] => 18
+*/
+
+
+
+
+    //comprueba si todos los request del array $data están llegando 
+    //test para comprobar los request de Laravel vía POST
+    public function testRequestPost(Request $request,$data){
+        //nuevo objeto vacío
+        $result=new \stdClass();
+        //nuevo objeto vacío
+        //$result=(object)[];
+        //nuevo objeto con contenido
+        //$result=(object)["hola"=>"olaaa"];
+        foreach($data as $d){            
+            if($request->post($d)){
+                //array_push($result,$request->post($d));
+                $result->$d=$request->post($d);
+                continue;
+            }
+            return false;
+        }
+        return $result;
+    }
+    
     
     //rpuebas    
     /*
@@ -1299,4 +1846,19 @@ class ImageController extends Controller
       Imagick::COLORSPACE_YDBDR; //33
       END - ALL AVAILABLE COLORSPACE CONSTANTS */
     
+    //lista de canales alpha de PHP
+      /*
+    List of ALPHACHANNEL constants are given below:
+
+imagick::ALPHACHANNEL_ACTIVATE (0)
+imagick::ALPHACHANNEL_DEACTIVATE (1)
+imagick::ALPHACHANNEL_RESET (2)
+imagick::ALPHACHANNEL_SET (3)
+imagick::ALPHACHANNEL_UNDEFINED (4)
+imagick::ALPHACHANNEL_COPY (5)
+imagick::ALPHACHANNEL_EXTRACT (6)
+imagick::ALPHACHANNEL_OPAQUE (7)
+imagick::ALPHACHANNEL_SHAPE (8)
+imagick::ALPHACHANNEL_TRANSPARENT (9)
+*/
 }

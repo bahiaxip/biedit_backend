@@ -33,7 +33,9 @@ Route::get("images/","ImageController@index");
 Route::post("filter","ImageController@setFilter");
 Route::post("polygon","ImageController@setPolygon");
 Route::post("effect","ImageController@setEffect");
-
+Route::post("composite","ImageController@compositeImage");
+Route::post("watermark","ImageController@setWaterMark");
+Route::post("watermark/create","ImageController@createWaterMark");
 Route::post("compress","ImageController@setCompression");
 
 Route::get("download","ImageController@download");
