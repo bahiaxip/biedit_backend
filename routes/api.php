@@ -25,14 +25,17 @@ Route::group(["middleware"=>"auth:api"],function(){
 
 	
 	Route::post("images","ImageController@store");
-	Route::post("images/{image}","ImageController@destroy");
+	Route::post("image/{image}","ImageController@destroy");
 	Route::post("resize","ImageController@resizeImage");
 	Route::post("crop","ImageController@cropImage");
 });
+Route::post("images/delete","ImageController@destroyList");
+
 Route::get("images/","ImageController@index");
 Route::post("filter","ImageController@setFilter");
 Route::post("polygon","ImageController@setPolygon");
 Route::post("effect","ImageController@setEffect");
+
 Route::post("composite","ImageController@compositeImage");
 Route::post("watermark","ImageController@setWaterMark");
 Route::post("watermark/create","ImageController@createWaterMark");

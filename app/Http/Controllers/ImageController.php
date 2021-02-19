@@ -427,7 +427,9 @@ class ImageController extends Controller
     {
         
     }
-    
+    //Este método sirve para el componente collections y para el componente effect
+    //con su método processAll() que procesa efectos consecutivamente y requiere eliminar
+    //las imágenes creadas excepto la última con todos los efectos
     public function destroy($id,Request $request)
     {
         //falta comprobar si la imagen pertenece al mismo user_id
@@ -454,11 +456,37 @@ class ImageController extends Controller
                 Storage::disk("public")->delete($image->path.$image->random_name);
                 //$image=Storage::disk("local");
             }
+            //si no existe $page o es null es pk la solicitud es del método processAll()
+            //del componente effects, enviamos sin parámetro page
+        //por revisar si es necesaria está condición o optimizar
+            if(!$page)
+                return response()->json(["message" =>"La imagen se ha eliminado correctamente" ]);
+
             return response()->json(["message" => "La imagen se ha eliminado correctamente","page"=>$page]);   
             //return response()->json(["message" => $image]);   
             
         }
         
+    }
+
+    public function destroyList(Request $request){
+        if($request->post("email")){
+            $list=$request->post("images");
+            $image=null;
+            $ids=[];
+            for($i=0;$i<count($list);$i++){
+                $image=Image::where("id",$list[$i]["id"])->first();
+                if($image){
+                    $image->delete();
+                    Storage::disk("public")->delete($image->path.$image->random_name);
+                    $image=null;
+                }
+            }
+            
+
+            return response()->json(["data"=>$ids]);
+        }
+
     }
 
     public function getImage($image){
@@ -733,7 +761,16 @@ class ImageController extends Controller
             //asignamos fondo transparente
             $transparent=imagecolortransparent($img2,imagecolorallocate($img2,255,1,254));
             if($sides==0){
-                imagefilledellipse($img2, $width/2, $height/2, $height, $height, $transparent);
+
+            //realizamos comprobación de ancho y alto:
+            //si se rota la imagen funciona con 2 $width, si se rota 180 o no se rota funciona con 2 $heigth, 
+            //En principio solo con este if else funciona, recomendable más 
+            //comprobaciones con más medidas
+                if($width>$height)
+                    imagefilledellipse($img2, $width/2, $height/2, $height, $height, $transparent);                  
+
+                else
+                    imagefilledellipse($img2, $width/2, $height/2, $width, $width, $transparent);
             }else{
                 //copiamos parte de la imagen del recurso $img2 al recurso $img
                 imagefilledpolygon($img2, $points, $sides, $transparent);
@@ -798,6 +835,17 @@ class ImageController extends Controller
             $name=$request->post("name");
             $email=$request->post("email");
             $effect=$request->post("effect");
+            //el efecto rotate requiere el objeto params para pasar el ángulo,
+            //se requería el objeto para otros datos pero ahora tan solo es necesario 
+            //el ángulo, se puede pasar como entero tan solo el ángulo, revisar...
+            if($effect=="rotate"){
+                $params=$request->post("params");
+                $angle=0;
+                if(isset($params["angle"])){
+                    $angle=$params["angle"];
+                }
+            }
+            
             //obtenemos el user
             $user=User::where("email",$email)->first();
             //obtenemos la imagen comprobando si coincide el user y el nombre de la imagen
@@ -821,15 +869,26 @@ class ImageController extends Controller
                 //mejor llamar con $this por si se traslada la función.
                 //self::setEffectToImage($im,$width,$height,$path_newimage,$effect);
 
-                $this->setEffectToImage($path_image,$width,$height,$path_newimage,$effect);
+                //para efecto de compresión no se pasa $im, se pasa directamente la ruta
+                //de la imagen ($path_image)
+                //efecto de compresión
+                //$this->setEffectToImage($path_image,$width,$height,$path_newimage,$effect);
+                //efecto rotate que utiliza $params
+                if($effect=="rotate"){
+                    $this->rotateImage($im,$path_newimage,$angle);    
+                }else{
+                    $this->setEffectToImage($im,$width,$height,$path_newimage,$effect);    
+                }
+                
+                
             }
             
             $size=filesize($path_newimage);
 
             list($newwidth,$newheight,$newimage_type)=getimagesize($path_newimage);
-
+            
             $image=Image::create([
-                "title"=>"effect_".$test->title,
+                "title"=>$effect."_".$test->title,
                 "detail"=>NULL,
                 "width"=>$newwidth,
                 "height"=>$newheight,
@@ -841,7 +900,8 @@ class ImageController extends Controller
                 "space_color"=>$test->space_color,
                 "user_id"=>$test->user_id
             ]);
-            return response()->json(["image"=>$size]);    
+            
+            return response()->json(["image"=>$image]);    
         }
         //if($im=new Imagick())
         
@@ -947,7 +1007,18 @@ class ImageController extends Controller
             //(compresión) efectivo comando exec para comprimir imagen png
                 //exec("convert ".$im." -colors 16 ".$new_path);
     }
-    
+    public function rotateImage($im,$new_path,$params){
+        $angle=0;
+        if($params=="left"){
+            $angle=270;
+        }else if($params=="right"){
+            $angle=90;
+        }else if($params=="top_bottom"){
+            $angle=180;
+        }
+        $im->rotateImage("rgb(0,0,0)",$angle);
+        $im->writeImage($new_path);
+    }
 
     public function setEffectToImage($im,$w,$h,$new_path,$type){
 
@@ -968,14 +1039,14 @@ class ImageController extends Controller
         //separateImageChannel
         switch($type){
             case "polaroid":
-            /*
+            
                 $im->polaroidImage(new ImagickDraw(),15);
                 //en scaleImage el tercer parámetro (booleano) si es false 
                 //permite //mantener la misma medida, si es true toma como 
                 //referencia el ancho o alto más pequeño, pero queda mejor
                 $im->scaleImage($w,$h,true);
                 $im->writeImage($new_path);
-            */
+            
                 //$im->setImageOrientation(Imagick::ORIENTATION_LEFTTOP);
                 //$imagick=Imagick::getCharacter();
                 //SILUETA edge 
@@ -1033,7 +1104,7 @@ class ImageController extends Controller
             //compression
             //exec("convert ".$im." -colors 256 ".$new_path);
             //comprobación de colores
-                $data=exec("convert ".$im." -colors 256 ".$new_path);
+                //$data=exec("convert ".$im." -colors 256 ".$new_path);
                 //$im->separateimagechannel(Imagick::CHANNEL_BLUE);
     //$size=$im->getImageColorspace();
                 //$im->writeImage($new_path);
@@ -1098,7 +1169,7 @@ class ImageController extends Controller
                 $im->embossImage(3,1);
                 $im->writeImage($new_path);
                 break;
-            case "desenfoqueG":
+            case "gaussiano":
                 $im->gaussianBlurImage(5,3);
                 $im->writeImage($new_path);
                 break;
@@ -1106,6 +1177,7 @@ class ImageController extends Controller
                 $im->rotationalBlurImage(4);
                 $im->writeImage($new_path);
                 break;
+
             case "default":
 
                 break;
