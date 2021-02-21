@@ -577,6 +577,8 @@ class ImageController extends Controller
             $name=$request->get("name");
             $path=$request->get("path");
             $test_image=Image::where("random_name",$image)->where("user_id",$id)->first();
+
+            $name=$name.".".strtolower($test_image->ext);
             if(!$test_image){                
                 return response()->json(["message"=>"El usuario no tiene acceso a esta imagen"]);
             }
@@ -843,6 +845,13 @@ class ImageController extends Controller
                 $angle=0;
                 if(isset($params["angle"])){
                     $angle=$params["angle"];
+                }
+            }
+            if($effect=="texturize"){
+                $params=$request->post("params");
+                $val_texturize=1;
+                if(isset($params["valTexturize"])){
+                    $val_texturize=$params["valTexturize"];
                 }
             }
             
@@ -1178,6 +1187,7 @@ class ImageController extends Controller
                 $im->writeImage($new_path);
                 break;
 
+
             case "default":
 
                 break;
@@ -1203,6 +1213,7 @@ class ImageController extends Controller
         exec("convert ".$image." -colors 64 ".$new_image);
     }
 
+//fussion
     //este método asigna 2 imágenes y las fusiona asignando las medidas de la segunda
     //imagen y un gradiente de transparencia gris
     public function compositeImage(Request $request){
@@ -1256,8 +1267,12 @@ class ImageController extends Controller
         $img1->compositeImage($img2, Imagick::COMPOSITE_ATOP,0,0);
         //obtenemos espacio de color de la nueva imagen
         $space_color_int=$img1->getImageColorspace();
-        $values=["UNDEFINED","RGB","GRAY","TRANSPARENT","OHTA","LAB","XYZ","YCBCR","YCC","YIQ","YPBPR","YUV","CMYK","SRGB","HSB","HSL","HWB","REC601LUMA","REC601YCBCR","REC709LUMA","REC709YCBCR","LOG","CMY","LUV","HCL","LCH","LMS","LCHAB","LCHUV","SCRGB","HSI","HSV","HCLP","YDBDR",];
-        $space_color=$values[$space_color_int];
+
+    //pasado al método setSpaceColor()
+        /*$values=["UNDEFINED","RGB","GRAY","TRANSPARENT","OHTA","LAB","XYZ","YCBCR","YCC","YIQ","YPBPR","YUV","CMYK","SRGB","HSB","HSL","HWB","REC601LUMA","REC601YCBCR","REC709LUMA","REC709YCBCR","LOG","CMY","LUV","HCL","LCH","LMS","LCHAB","LCHUV","SCRGB","HSI","HSV","HCLP","YDBDR",];*/
+        //$space_color=$values[$space_color_int];
+
+        $space_color=$this->setSpaceColor($space_color_int);
         $final_ext=$test->ext;
         //si alguna de las dos es png asignamos png
         //se podría también comprobar con getImageFormat()
@@ -1290,7 +1305,8 @@ class ImageController extends Controller
             "space_color"=>$space_color,
             "user_id"=>$test->user_id
         ]);
-        
+//recomendable pasar como hace el código anterior los datos de extensión en mayúsculas
+//en las otras opciones de guardado de imagen    
         return response()->json(["data"=>$image]);
     }
 
@@ -1306,18 +1322,24 @@ class ImageController extends Controller
         }
     }
 
+    public function setSpaceColor($int){
+        $values=["UNDEFINED","RGB","GRAY","TRANSPARENT","OHTA","LAB","XYZ","YCBCR","YCC","YIQ","YPBPR","YUV","CMYK","SRGB","HSB","HSL","HWB","REC601LUMA","REC601YCBCR","REC709LUMA","REC709YCBCR","LOG","CMY","LUV","HCL","LCH","LMS","LCHAB","LCHUV","SCRGB","HSI","HSV","HCLP","YDBDR",];
+        return $values[$int];
+    }
+
     //Establecer marca de agua con opción centrado, o acomodado en una de las 4 esquinas:
     //top-left,top-right,bottom-left,bottom-right
     public function setWaterMark(Request $request){
 
-        $d=$this->testRequestPost($request,["email","imageSrc","imageId"]);
+        $d=$this->testRequestPost($request,["email","imageSrc","imageId","position"]);
         if(!$d)  
             return response()->json(["message"=>"Faltan datos en el envío"]);
+
         $email=$d->email;
         $image=$d->imageSrc;
         $image_id=$d->imageId;
         $position=$d->position;
-
+        
         //obtenemos el user
         $user=User::where("email",$email)->first();
         //obtenemos la imagen comprobando si coincide el user y el nombre de la imagen
@@ -1351,11 +1373,11 @@ class ImageController extends Controller
         
         //si la imagen 1 tiene transparencia, para asegurarse se puede establecer el  formato en png
         $testTransIm=$im->getImageAlphaChannel();
-        $dato="no tiene ";
+        
         if($testTransIm){
-            $im->setimageformat("png");
-            $dato="si tiene ";
+            $im->setimageformat("png");        
         }
+
     //setImageAlphaChannel establece el canal alpha (transparencia) a una imagen 
         //si la imagen de la marca de agua (watermark) no tiene transparencia 
         //se crea el canal alpha
@@ -1379,11 +1401,9 @@ class ImageController extends Controller
 
 
         $x;$y;
-        $option="centered";
-        $param="top_left";
-
+        
         //asignamos posicion centrada        
-        if($option=="centered"){
+        if($position=="center"){
     //si la imagen es menor que wm redimensionamos el wm a la misma de la imagen
             if($im_height<$wm_height || $im_width<$wm_width){
                 $wm->scaleImage($im_width,$im_height);
@@ -1396,8 +1416,8 @@ class ImageController extends Controller
             $x=($im_width-$wm_width) /2;
             $y=($im_height-$wm_height)/2;
             //si es esquina abajo derecha
-        }
-        elseif($option=="corner"){
+        }else{
+            
             $divisor=3;
             $wm->scaleImage($wm_width/$divisor,$wm_height/$divisor);
 
@@ -1405,16 +1425,16 @@ class ImageController extends Controller
             $wm_height=$wm->getImageHeight();
             
             
-            if($param=="bottom_right"){
+            if($position=="bottomRight"){
                 $x=$im_width-$wm_width;
                 $y=$im_height-$wm_height;
-            }elseif($param=="top_right"){
+            }elseif($position=="topRight"){
                 $x=$im_width-$wm_width;
                 $y=0;
-            }elseif($param=="bottom_left"){
+            }elseif($position=="bottomLeft"){
                 $x=0;
                 $y=$im_height-$wm_height;
-            }elseif($param=="top_left"){
+            }elseif($position=="topLeft"){
                 $x=0;
                 $y=0;
             }
@@ -1485,25 +1505,58 @@ class ImageController extends Controller
         //$im->compositeImage($wm,Imagick::COMPOSITE_XOR,0,0);     
     //mezcla la imagen
         //$im->compositeImage($wm,Imagick::COMPOSITE_BLEND,0,0);
-        $im->writeImage(public_path("storage")."/".$test->path."watermark.".$wm->getImageFormat());
+        $rand=Str::random(40);
+        $space_color=$this->setSpaceColor($im->getImageColorspace());
+        $path_newimage=public_path("storage")."/".$test->path.$rand.".".$wm->getImageFormat();
+        $im->writeImage($path_newimage);
 
-        return response()->json(["data"=>$dato]);
+        list($width,$height,$image_type)=getimagesize($path_newimage);
+        $size=filesize($path_newimage);
+
+
+        $type=$this->testImageType($image_type);
+        if(!$type)
+            return response()->json(["message"=>"Hubo un error con la extensión de la imagen"]);
+
+        //pasamos a minúsculas para la extensión en el campo random_name, pero
+        //no para el campo ext que los mantenemos en mayúsculas que devuelve 
+        //el método testImageType()
+        $ext=strtolower($type);
+        $image=Image::create([
+            "title"=>"wm_".$test->title."_".$test2->title,
+            "detail"=>NULL,
+            "width"=>$width,
+            "height"=>$height,
+            "path"=>$test->path,
+            "random_name"=>$rand.".".$ext,
+            "thumb" => NULL,
+            "ext"=>$type,
+            "size"=>$size,
+            "space_color"=>$space_color,
+            "user_id"=>$test->user_id
+        ]);
+
+        return response()->json(["data"=>$image]);
 
         
     }
 
     public function createWaterMark(Request $request){
-        $post_data=["email","inputWm","FontSize"];
+
+        $post_data=["email","inputWm","fontSize","fontFamily","color"];
         $d=$this->testRequestPost($request,$post_data);
         if(!$d)  
             return response()->json(["message"=>"Faltan datos en el envío"]);
         $email=$d->email;
         $input_wm=$d->inputWm;
-        $font_size=$d->FontSize;
+        $font_size=$d->fontSize;
+        $font_family=$d->fontFamily;
+        $color=$d->color;
         
 
         //obtenemos el user
         $user=User::where("email",$email)->first();
+        $d=$user->images();
         //obtenemos la imagen comprobando si coincide el user y el nombre de la imagen
         
         /*
@@ -1553,38 +1606,106 @@ class ImageController extends Controller
     $ima->annotateImage($draw,0,0,0,$textline);
     */
 //opción 3 funciona correctamente (creación de label con convert)
-    //$ruta=public_path("storage")."/".$test->path."watermark.gif";
-    $font_ubuntu=public_path("storage")."/fonts/Ubuntu-Title.ttf";
-    $font_designer=public_path("storage")."/fonts/designer-block.ttf";
-    $font_fontanero=public_path("storage")."/fonts/Fontanero-FFP.ttf";
-    $font_nikaia=public_path("storage")."/fonts/Nikaia_Medium.ttf";    
-    $font_usuzi=public_path("storage")."/fonts/USUZI.TTF";
-    $font_abduction=public_path("storage")."/fonts/abduction2002.ttf";
-    $font_corporate=public_path("storage")."/fonts/corporateroundedextrabold.ttf";
-    $font_timesnewroman=public_path("storage")."/fonts/timesbd.ttf";
-    $font_zerogirl=public_path("storage")."/fonts/ZEROGIRL.TTF";
-    $font_yanone=public_path("storage")."/fonts/Yanone-Bold.otf";
-    $font_glsnecb=public_path("storage")."/fonts/GLSNECB.TTF";
-    $font_futura=public_path("storage")."/fonts/FUTURAB.ttf";
-    $ruta=public_path("storage")."/img/".$email."/watermark3.png";
-    $font=public_path("storage")."/fonts/LOKICOLA.TTF";
-    $font2="Arial";
-    
-    //necesario pasar \" con $input_wm en lugar de concatenar para que detecte los espacios de la cadena
 
-    exec("convert -background black -fill white -font ".$font_futura." -pointsize ".$font_size." label:\"$input_wm\" ".$ruta);
-    //exec("convert -background transparent -fill '#000' -pointsize ".$font_size." label:\"$input_wm\" ".$ruta);
     
-    //$ima=new Imagick($ruta);
-        //crear texto
-    //    $image->annotateImage($draw,10,45,0,"lo que quiera");
-        //$im->setImageFormat("png");
-        //$im->setGravity(Imagick::GRAVITY_CENTER);
-        //$im->compositeImage($ima,Imagick::COMPOSITE_OVER,0,0);
-        //$im->writeImage(public_path("storage")."/".$test->path."createwatermark.png");
-        //$mark->setSize($width,$height);
+        $font_ubuntu=public_path("storage")."/fonts/Ubuntu-Title.ttf";
+        $font_designer=public_path("storage")."/fonts/designer-block.ttf";
+        $font_fontanero=public_path("storage")."/fonts/Fontanero-FFP.ttf";
+        $font_nikaia=public_path("storage")."/fonts/Nikaia_Medium.ttf";    
+        $font_usuzi=public_path("storage")."/fonts/USUZI.TTF";
+        $font_abduction=public_path("storage")."/fonts/abduction2002.ttf";
+        $font_corporate=public_path("storage")."/fonts/corporateroundedextrabold.ttf";
+        $font_timesnewroman=public_path("storage")."/fonts/timesbd.ttf";
+        $font_zerogirl=public_path("storage")."/fonts/ZEROGIRL.TTF";
+        $font_yanone=public_path("storage")."/fonts/Yanone-Bold.otf";
+        $font_glsnecb=public_path("storage")."/fonts/GLSNECB.TTF";
+        $font_futura=public_path("storage")."/fonts/FUTURAB.ttf";
 
-        return response()->json(["data"=>"correcto"]);
+    
+        $font_lokicola=public_path("storage")."/fonts/LOKICOLA.TTF";
+        $font2="Arial";
+        switch($font_family){
+            case "ubuntu":
+                $font=$font_ubuntu;
+                break;
+            case "desinger":
+                $font=$font_designer;
+                break;
+            case "fontanero":
+                $font=$font_fontanero;
+                break;
+            case "nikaia":
+                $font=$font_nikaia;
+                break;
+            case "usuzi":
+                $font=$font_usuzi;
+                break;
+            case "abduction":
+                $font=$font_abduction;
+                break;
+            case "corporate":
+                $font=$font_corporate;
+                break;
+            case "timesnewroman":
+                $font=$font_timesnewroman;
+                break;
+            case "zerogirl":
+                $font=$font_zerogirl;
+                break;
+            case "yanone":
+                $font=$font_yanone;
+                break;
+            case "glsnecb":
+                $font=$font_glsnecb;
+                break;
+            case "futura":
+                $font=$font_futura;
+                break;            
+            default:
+                $font=$font_ubuntu;
+
+        }
+        $rand=Str::random(40);
+        $ruta=public_path("storage")."/img/".$email."/".$rand.".png";
+        //necesario pasar \" con $input_wm en lugar de concatenar para que detecte los espacios de la cadena
+
+        exec("convert -background transparent -fill '$color' -font ".$font." -pointsize ".$font_size." label:\"$input_wm\" ".$ruta);
+        //exec("convert -background transparent -fill '#000' -pointsize ".$font_size." label:\"$input_wm\" ".$ruta);
+    
+        //$ima=new Imagick($ruta);
+            //crear texto
+        //    $image->annotateImage($draw,10,45,0,"lo que quiera");
+            //$im->setImageFormat("png");
+            //$im->setGravity(Imagick::GRAVITY_CENTER);
+            //$im->compositeImage($ima,Imagick::COMPOSITE_OVER,0,0);
+            //$im->writeImage(public_path("storage")."/".$test->path."createwatermark.png");
+            //$mark->setSize($width,$height);
+
+        list($width,$height,$image_type)=getimagesize($ruta);
+        $size=filesize($ruta);
+        $type=$this->testImageType($image_type);
+        if(!$type)
+            return response()->json(["message"=>"Hubo un error con la extensión de la imagen"]);
+        
+        $ext=strtolower($type);
+        $im=new Imagick($ruta);
+        $space_color=$this->setSpaceColor($im->getImageColorspace());
+        $image=Image::create([
+            "title"=>"watermark",
+            "detail"=>NULL,
+            "width"=>$width,
+            "height"=>$height,
+            "path"=>"img/".$email."/",
+            "random_name"=>$rand.".png",
+            "thumb" => NULL,
+            "ext"=>$type,
+            "size"=>$size,
+            "space_color"=>$space_color,
+            "user_id"=>$user->id
+        ]);
+
+
+        return response()->json(["data"=>$type]);
     }
 
 //Información de interés:
