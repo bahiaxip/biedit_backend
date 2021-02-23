@@ -831,20 +831,36 @@ class ImageController extends Controller
     }
 
     public function setEffect(Request $request){
-
+        
         if($request->post("name")){
 
             $name=$request->post("name");
             $email=$request->post("email");
             $effect=$request->post("effect");
             //el efecto rotate requiere el objeto params para pasar el ángulo,
-            //se requería el objeto para otros datos pero ahora tan solo es necesario 
-            //el ángulo, se puede pasar como entero tan solo el ángulo, revisar...
+            //los efectos rotate y reflex solo se pueden enviar uno de ellos y
+            //siempre son los primeros de todos. Esto supone que nunca requieren
+            //de una nueva imagen para el proceso de varios efectos consecutivos
+            //sin embargo, lo incluimos en reflex por si se modifica el proyecto
+            //y ya no fuera el primero            
+            
+            //El params tb se utiliza para el proceso de varios efectos continuos,
+            //mediante promesas, con params pasamos la nueva imagen procesada con
+            // el efecto anterior
+
             if($effect=="rotate"){
                 $params=$request->post("params");
                 $angle=0;
                 if(isset($params["angle"])){
                     $angle=$params["angle"];
+                }
+            }
+            if($effect=="reflex"){
+                //en caso de proceso de varios efectos consecutivos se sustituye la ruta de la imagen
+                //inicial por la ruta de la imagen recien procesada
+                $params=$request->post("params");                
+                if(isset($params["name"])){
+                    $name=$params["name"];
                 }
             }
             if($effect=="texturize"){
@@ -854,6 +870,15 @@ class ImageController extends Controller
                     $val_texturize=$params["valTexturize"];
                 }
             }
+            if($effect=="separate_channel"){
+                $params=$request->post("params");                
+                $channel=$params["channel"];
+            }
+            if($effect=="space_color"){
+                $params=$request->post("params");
+                $space_color_to_convert=$params["spaceColor"];
+            }
+
             
             //obtenemos el user
             $user=User::where("email",$email)->first();
@@ -861,7 +886,11 @@ class ImageController extends Controller
             $test=Image::where("user_id",$user->id)->where("random_name",$name)->first();
             if(!$test)
                 return response()->json(["message"=>"No existe esa imagen o no pertenece a ese usuario"]);
-            $path_image=public_path("storage").'/'.$test->path.$test->random_name;
+            
+            
+            $path_image=public_path("storage").'/'.$test->path.$test->random_name;    
+            
+            
             list($width,$height,$image_type)=getimagesize($path_image);
             $rand=Str::random(40);
             //modificamos extensión para el efecto esquinas
@@ -869,12 +898,18 @@ class ImageController extends Controller
             if($effect=="esquinas"){
                 $ext="png";
             }
+
+
             $path_newimage=public_path("storage").'/'.$test->path.$rand.".".$ext;
             //obtener versión Imagick instalada
             //$version_imagick=Imagick::getVersion
 
+            //debido a los efectos de spacecolor y separatechannel asignamos por 
+            //defecto el espacio de color original que trae la imagen del panel
+
+            $space_color=$test->space_color;
             if($im=new Imagick($path_image)){
-           
+                
                 //mejor llamar con $this por si se traslada la función.
                 //self::setEffectToImage($im,$width,$height,$path_newimage,$effect);
 
@@ -884,18 +919,45 @@ class ImageController extends Controller
                 //$this->setEffectToImage($path_image,$width,$height,$path_newimage,$effect);
                 //efecto rotate que utiliza $params
                 if($effect=="rotate"){
-                    $this->rotateImage($im,$path_newimage,$angle);    
+                    $this->rotateImage($im,$path_newimage,$angle);
+                }else if($effect=="space_color"){
+                    $this->setEffect($im,$path_newimage,$space_color_to_convert,$path_image);
+                }else if($effect=="texturize"){
+                    $this->setTexturize($im,$path_newimage,$val_texturize);
+                }else if($effect=="separate_channel"){
+                    $this->separateChannel($im,$path_newimage,$channel);
+                }else if($effect=="space_color"){
+                    $this->setSpace($im,$path_newimage,$space_color_to_convert,$path_image);
                 }else{
                     $this->setEffectToImage($im,$width,$height,$path_newimage,$effect);    
                 }
-                
+                //return response()->json(["message"=>"no hay"]);
                 
             }
-            
+            //return response()->json(["message"=>"No existe esa imagen o no pertenece a ese usuario"]);
             $size=filesize($path_newimage);
 
             list($newwidth,$newheight,$newimage_type)=getimagesize($path_newimage);
             
+            if($effect=="separate_channel" || $effect=="space_color"){
+                $image=new Imagick($path_newimage);
+                $int=$image->getImageColorspace();
+                if($int==1){
+                    $space_color="RGB";
+                }
+                else if($int==2)
+                    $space_color="GRAY";
+                else if($int==12)
+                    $space_color="CMYK";
+                else if($int==13){
+                    $space_color="SRGB";                    
+                }
+                else
+                    $space_color="N/D";
+
+                //$space_color=$test->space_color;
+            }
+                
             $image=Image::create([
                 "title"=>$effect."_".$test->title,
                 "detail"=>NULL,
@@ -906,7 +968,7 @@ class ImageController extends Controller
                 "thumb" => NULL,
                 "ext"=>$ext,
                 "size"=>$size,
-                "space_color"=>$test->space_color,
+                "space_color"=>$space_color,
                 "user_id"=>$test->user_id
             ]);
             
@@ -914,6 +976,81 @@ class ImageController extends Controller
         }
         //if($im=new Imagick())
         
+    }
+
+    public function setSpace($im,$new_path,$spacecolor,$last_path=null){
+        $space=0;
+        if($spacecolor=="SRGB")
+            $space=Imagick::COLORSPACE_SRGB;            
+        if($spacecolor=="RGB")
+            //Convertir a RGB no es posible en muchas ocasiones, tanto
+            //con php como con exec(), tanto desde RGB como CMYK, la imagen se 
+            //mantiene en SRGB
+            
+            //exec("convert ".$last_path." -colorspace RGB ".$new_path);
+            $space=Imagick::COLORSPACE_RGB;
+        if($spacecolor=="CMYK")
+            $space=Imagick::COLORSPACE_CMYK;
+        if($spacecolor=="GRAY")
+            $space=Imagick::COLORSPACE_GRAY;
+        $im->transformImageColorSpace($space);
+        $im->writeImage($new_path);
+
+    }
+    public function separateChannel($im,$new_path,$ch){
+        $channel=0;
+        if($ch=="RED")
+            $channel=Imagick::CHANNEL_RED;
+        if($ch=="GREEN")
+            $channel=Imagick::CHANNEL_GREEN;
+        if($ch=="BLUE")
+            $channel=Imagick::CHANNEL_BLUE;
+        if($ch=="CYAN")
+            $channel=Imagick::CHANNEL_CYAN;
+        if($ch=="MAGENTA")
+            $channel=Imagick::CHANNEL_MAGENTA;
+        if($ch=="YELLOW")
+            $channel=Imagick::CHANNEL_YELLOW;
+        if($ch=="BLACK")
+            $channel=Imagick::CHANNEL_BLACK;
+        $im->separateImageChannel($channel);
+        $im->writeImage($new_path);
+    }
+
+    public function setTexturize($im,$new_path,$val_texturize){
+        $test=is_int(intval($val_texturize));
+        if($test){
+            //creamos objeto imagick
+            $image=new Imagick();
+
+            
+        //comprobar si tiene transparencia
+            if($im->getImageAlphaChannel()==0){
+                //asignamos medidas y fondo (jpg)
+                $image->newImage($im->getImageWidth(),$im->getImageHeight(),new ImagickPixel("white"));
+                //anulamos,pk no es necesario y para poder nombrarla jpg o png es n
+                //necesario antes del método
+                //$image->setImageFormat("jpg");        
+            }else{
+                //si es png -> añadir canal alpha: rgba(0,0,0,0);
+
+                //asignamos medidas y fondo (png)
+                $image->newImage($im->getImageWidth(),$im->getImageHeight(),new ImagickPixel("rgba(0,0,0,0)"));
+                //anulamos,pk no es necesario y para poder nombrarla jpg o png es 
+                //necesario antes del método
+                //$image->setImageFormat("png");
+            }
+            
+            //asignamos medidas proporcionales al rango seleccionado
+            $widthScaled=$im->getImageWidth()/$val_texturize;
+            $heightScaled=$im->getImageHeight()/$val_texturize;
+            //escalamos la imagen
+            $im->scaleimage($widthScaled,$heightScaled);
+            //procesar textura 
+            $im=$image->textureImage($im);
+            //guardar imagen
+            $im->writeImage($new_path);
+        }
     }
     
     public function setCompression(Request $request){
@@ -1268,11 +1405,11 @@ class ImageController extends Controller
         //obtenemos espacio de color de la nueva imagen
         $space_color_int=$img1->getImageColorspace();
 
-    //pasado al método setSpaceColor()
+    //pasado al método getSpaceColorStr()
         /*$values=["UNDEFINED","RGB","GRAY","TRANSPARENT","OHTA","LAB","XYZ","YCBCR","YCC","YIQ","YPBPR","YUV","CMYK","SRGB","HSB","HSL","HWB","REC601LUMA","REC601YCBCR","REC709LUMA","REC709YCBCR","LOG","CMY","LUV","HCL","LCH","LMS","LCHAB","LCHUV","SCRGB","HSI","HSV","HCLP","YDBDR",];*/
         //$space_color=$values[$space_color_int];
 
-        $space_color=$this->setSpaceColor($space_color_int);
+        $space_color=$this->getSpaceColorStr($space_color_int);
         $final_ext=$test->ext;
         //si alguna de las dos es png asignamos png
         //se podría también comprobar con getImageFormat()
@@ -1307,7 +1444,7 @@ class ImageController extends Controller
         ]);
 //recomendable pasar como hace el código anterior los datos de extensión en mayúsculas
 //en las otras opciones de guardado de imagen    
-        return response()->json(["data"=>$image]);
+        return response()->json(["image"=>$image]);
     }
 
     public function testImageType($type){
@@ -1321,10 +1458,39 @@ class ImageController extends Controller
             return;
         }
     }
-
-    public function setSpaceColor($int){
+    //devuelve el string correspondiente del número entero representado como constante 
+    //de espacio de color en Imagick. Útil para obtener el espacio de color de una 
+    //imagen con Imagick y su método getImageColorSpace(), la lista de constantes de 
+    //SPACECOLOR están al final de este documento.
+    public function getSpaceColorStr($int_spacecolor){
         $values=["UNDEFINED","RGB","GRAY","TRANSPARENT","OHTA","LAB","XYZ","YCBCR","YCC","YIQ","YPBPR","YUV","CMYK","SRGB","HSB","HSL","HWB","REC601LUMA","REC601YCBCR","REC709LUMA","REC709YCBCR","LOG","CMY","LUV","HCL","LCH","LMS","LCHAB","LCHUV","SCRGB","HSI","HSV","HCLP","YDBDR",];
-        return $values[$int];
+        return $values[$int_spacecolor];
+    }
+    //Para establecer espacio de color Imagick dispone de 2 métodos: 
+    //setImageColorSpace() y transformImage().
+    //setImageColorSpace se recomienda para imágenes nuevas, transformImage se recomienda
+    //para convertir imágenes
+    //Nota: En la documentación oficial de PHP se indica la solución si al convertir 
+    //imágenes con setImageColorSpace() se invierten.
+
+    //con transformImage():
+    public function setSpaceColor($im,$str){
+        switch ($str){
+            case "RGB":
+                $im->transformImageColorSpace(Imagick::COLORSPACE_RGB); 
+                break;
+            case "GRAY":
+                $im->transformImageColorSpace(Imagick::COLORSPACE_GRAY);
+                break;
+            case "CMYK":
+                $im->transformImageColorSpace(Imagick::COLORSPACE_CMYK);
+                break;
+            default:
+                $im->transformImageColorSpace(Imagick::COLORSPACE_SRGB);      
+                //$im->transformImage(Imagick::COL);
+
+        }
+        return $im->transformImage($int_spacecolor);
     }
 
     //Establecer marca de agua con opción centrado, o acomodado en una de las 4 esquinas:
@@ -1506,7 +1672,7 @@ class ImageController extends Controller
     //mezcla la imagen
         //$im->compositeImage($wm,Imagick::COMPOSITE_BLEND,0,0);
         $rand=Str::random(40);
-        $space_color=$this->setSpaceColor($im->getImageColorspace());
+        $space_color=$this->getSpaceColorStr($im->getImageColorspace());
         $path_newimage=public_path("storage")."/".$test->path.$rand.".".$wm->getImageFormat();
         $im->writeImage($path_newimage);
 
@@ -1536,7 +1702,7 @@ class ImageController extends Controller
             "user_id"=>$test->user_id
         ]);
 
-        return response()->json(["data"=>$image]);
+        return response()->json(["image"=>$image]);
 
         
     }
@@ -1612,7 +1778,7 @@ class ImageController extends Controller
         $font_designer=public_path("storage")."/fonts/designer-block.ttf";
         $font_fontanero=public_path("storage")."/fonts/Fontanero-FFP.ttf";
         $font_nikaia=public_path("storage")."/fonts/Nikaia_Medium.ttf";    
-        $font_usuzi=public_path("storage")."/fonts/USUZI.TTF";
+        $font_usuzi=public_path("storage")."/fonts/usuzi.ttf";
         $font_abduction=public_path("storage")."/fonts/abduction2002.ttf";
         $font_corporate=public_path("storage")."/fonts/corporateroundedextrabold.ttf";
         $font_timesnewroman=public_path("storage")."/fonts/timesbd.ttf";
@@ -1628,7 +1794,7 @@ class ImageController extends Controller
             case "ubuntu":
                 $font=$font_ubuntu;
                 break;
-            case "desinger":
+            case "designer":
                 $font=$font_designer;
                 break;
             case "fontanero":
@@ -1689,7 +1855,7 @@ class ImageController extends Controller
         
         $ext=strtolower($type);
         $im=new Imagick($ruta);
-        $space_color=$this->setSpaceColor($im->getImageColorspace());
+        $space_color=$this->getSpaceColorStr($im->getImageColorspace());
         $image=Image::create([
             "title"=>"watermark",
             "detail"=>NULL,
@@ -1705,10 +1871,17 @@ class ImageController extends Controller
         ]);
 
 
-        return response()->json(["data"=>$type]);
+        return response()->json(["image"=>$type]);
     }
 
 //Información de interés:
+
+//Obtener los distintos formatos que devuelve getImageFormat() (JPEG,PNG,GIF,MP4,BMP...)
+//con Imagick::queryFormats() (es un array de 242 posibles formatos)
+
+    //$a=Imagick::queryFormats();
+    //return response()->json(["data"=>$a]);
+
 //para establecer canal alpha a una imagen
     //$im->setImageAlphaChannel(Imagick::ALPHACHANNEL_ACTIVATE);
 //para extraer una parte de la imagen: getImageRegion(ancho,alto,x,y)
@@ -2054,4 +2227,25 @@ imagick::ALPHACHANNEL_OPAQUE (7)
 imagick::ALPHACHANNEL_SHAPE (8)
 imagick::ALPHACHANNEL_TRANSPARENT (9)
 */
+
+
+    //List of CHANNEL constants:
+/*
+    Imagick::CHANNEL_UNDEFINED  //0
+    Imagick::CHANNEL_RED        //1
+    Imagick::CHANNEL_GRAY       //2
+    Imagick::CHANNEL_CYAN       //3
+    Imagick::CHANNEL_GREEN      //4
+    Imagick::CHANNEL_MAGENTA    //5
+    Imagick::CHANNEL_BLUE       //6
+    Imagick::CHANNEL_YELLOW     //7
+    Imagick::CHANNEL_ALPHA      //8
+    Imagick::CHANNEL_OPACITY    //9
+    Imagick::CHANNEL_MATTE      //10
+    Imagick::CHANNEL_BLACK      //11
+    Imagick::CHANNEL_INDEX      //12
+    Imagick::CHANNEL_ALL        //13
+    Imagick::CHANNEL_DEFAULT    //14
+*/
+
 }
