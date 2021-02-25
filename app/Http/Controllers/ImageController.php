@@ -920,8 +920,6 @@ class ImageController extends Controller
                 //efecto rotate que utiliza $params
                 if($effect=="rotate"){
                     $this->rotateImage($im,$path_newimage,$angle);
-                }else if($effect=="space_color"){
-                    $this->setEffect($im,$path_newimage,$space_color_to_convert,$path_image);
                 }else if($effect=="texturize"){
                     $this->setTexturize($im,$path_newimage,$val_texturize);
                 }else if($effect=="separate_channel"){
@@ -934,7 +932,8 @@ class ImageController extends Controller
                 //return response()->json(["message"=>"no hay"]);
                 
             }
-            //return response()->json(["message"=>"No existe esa imagen o no pertenece a ese usuario"]);
+
+            
             $size=filesize($path_newimage);
 
             list($newwidth,$newheight,$newimage_type)=getimagesize($path_newimage);
@@ -978,21 +977,24 @@ class ImageController extends Controller
         
     }
 
-    public function setSpace($im,$new_path,$spacecolor,$last_path=null){
+    public function setSpace($im,$new_path,$spacecolor,$last_path){
         $space=0;
-        if($spacecolor=="SRGB")
+        if($spacecolor=="SRGB"){
             $space=Imagick::COLORSPACE_SRGB;            
-        if($spacecolor=="RGB")
+        }
+        if($spacecolor=="RGB"){
             //Convertir a RGB no es posible en muchas ocasiones, tanto
             //con php como con exec(), tanto desde RGB como CMYK, la imagen se 
             //mantiene en SRGB
-            
             //exec("convert ".$last_path." -colorspace RGB ".$new_path);
             $space=Imagick::COLORSPACE_RGB;
-        if($spacecolor=="CMYK")
+        }        
+        if($spacecolor=="CMYK"){
             $space=Imagick::COLORSPACE_CMYK;
-        if($spacecolor=="GRAY")
+        }
+        if($spacecolor=="GRAY"){
             $space=Imagick::COLORSPACE_GRAY;
+        }
         $im->transformImageColorSpace($space);
         $im->writeImage($new_path);
 
@@ -1353,8 +1355,14 @@ class ImageController extends Controller
 //fussion
     //este método asigna 2 imágenes y las fusiona asignando las medidas de la segunda
     //imagen y un gradiente de transparencia gris
-    public function compositeImage(Request $request){
 
+    //este método puede generar error, ya que el método compositeImage exige ciertos
+    //recursos con imágenes pesadas y no tan pesadas, de hecho, haciendo 
+    //comprobaciones con una imagen de 1.7MB y otra de 245Kb genera error si tengo
+    //el VLC abierto, sin embargo si la cierro no me genera error.
+
+    public function compositeImage(Request $request){
+        try{
         $d=$this->testRequestPost($request,["email","imageSrc","imageId"]);
         if(!$d)  
             return response()->json(["message"=>"Faltan datos en el envío"]);
@@ -1373,19 +1381,60 @@ class ImageController extends Controller
         //$img1=new Imagick($img1_path);
         $img1=new Imagick();
         $img1->readImage($img1_path);
-        
+    //comprobamos si la imagen 1 es distinta a RGB o SRGB y si es, convertimos
+        $spacecolor1_int=$img1->getImageColorspace();
+        if($spacecolor1_int !=Imagick::COLORSPACE_SRGB && $spacecolor1_int!=Imagick::COLORSPACE_RGB)
+            $img1->transformImageColorSpace(Imagick::COLORSPACE_SRGB);
+
         $img2_path=public_path("storage")."/".$test2->path.$test2->random_name;
         
         $wm=new Imagick($img2_path);
         
         $img2=new Imagick($img2_path);
-        //redimensionamos a las medidas de la segunda imagen
-    //Habría que comprobar con imágenes de distintas medidas x si es necesario
-    //realizar otras comprobaciones más específicas para asignar la redimensión a la
-    //otra imagen si fuera más conveniente
+    //comprobamos si la imagen 1 es distinta a RGB o SRGB y si es, convertimos
+        $spacecolor2_int=$img2->getImageColorspace();
+        if($spacecolor2_int !=Imagick::COLORSPACE_SRGB && $spacecolor2_int!=Imagick::COLORSPACE_RGB)
+            $img1->transformImageColorSpace(Imagick::COLORSPACE_SRGB);
+//redimensionamos a las medidas de la segunda imagen
+    
+    //Error solucionado con Imagick()
+        //se observa que da error en imágenes de muchos píxeles (3000 o 4000) aunque 
+        //tengan menos de 2MB. El error de Vue indica error en Cors, sin embargo
+        // en POstman indica exceso de tiempo (30 segundos), todo indica a que se 
+        //demora en el método de redimensión de Imagick que se encuentra a 
+        //continuación. Para solucionar este problema se ha necesitado añadir un 
+        //else-if que comprueba si excede de 3000, y si es así, asignamos 3000 como
+        //ancho final y asignamos la altura proporcional.
+        
+        
+        //comprobamos medidas y asignamos
+        $img1_w=$img1->getImageWidth();
+        $img1_h=$img1->getImageHeight();
+        $img2_w=$img2->getImageWidth();
+        $img2_h=$img2->getImageHeight();
+        //ancho y alto finales para la imagen final
+        $final_w;
+        $final_h;
+//recomendable pasar el 3000 como variable global a un archivo y según el cpu del 
+//servidor bajar o subir el número de píxeles por defecto.
+        //si la imagen2 es menor (ancho y alto) de 3000 asignamos las de imagen2
+        if($img2_w < 3000 && $img2_h < 3000){
+            $final_w=$img2_w;
+            $final_h=$img2_h;
+        //si la imagen1 es menor (ancho y alto) de 3000 asignamos las de imagen1
+        }else if($img1_w < 3000 && $img1_h < 3000){        
+            $final_w=$img1_w;
+            $final_h=$img1_h;
+        }else{
+            //si las dos son enormes (+ de 3000) asignamos como ancho 3000 y tomamos 
+            //la imagen2 para redimensionar proporcionalmente
+            $final_w=3000;
+            $final_h=ceil(3000*$img2_h)/$img2_w;
+        }
+        
         $img1->resizeimage(
-            $img2->getImageWidth(),
-            $img2->getImageHeight(),
+            $final_w,
+            $final_h,
             Imagick::FILTER_LANCZOS,
             1
         );
@@ -1400,8 +1449,11 @@ class ImageController extends Controller
 
         //rotamos el gradiente anteriormente creado
         $opacity->rotateimage("black",90);
-        $img2->compositeImage($opacity, Imagick::COMPOSITE_COPYOPACITY,0,0);
-        $img1->compositeImage($img2, Imagick::COMPOSITE_ATOP,0,0);
+        
+            $img2->compositeImage($opacity, Imagick::COMPOSITE_COPYOPACITY,0,0);
+            $img1->compositeImage($img2, Imagick::COMPOSITE_ATOP,0,0);
+        
+        
         //obtenemos espacio de color de la nueva imagen
         $space_color_int=$img1->getImageColorspace();
 
@@ -1445,6 +1497,9 @@ class ImageController extends Controller
 //recomendable pasar como hace el código anterior los datos de extensión en mayúsculas
 //en las otras opciones de guardado de imagen    
         return response()->json(["image"=>$image]);
+        }catch(Exception $ex){
+            return response()->json(["error"=>"Error, compositeImage, ".$ex->getMessage()]);
+        }
     }
 
     public function testImageType($type){
