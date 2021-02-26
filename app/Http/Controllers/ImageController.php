@@ -350,7 +350,7 @@ class ImageController extends Controller
             //$image = Image::create($request->all());
             //return response()->json($image,201);    
         }else{
-            return response()->json(["message" => "No se pudo subir la imagen"]);
+            return response()->json(["message" => "No se pudo subir la imagen al servidor"]);
         }   
         
     }
@@ -534,7 +534,8 @@ class ImageController extends Controller
                 $resize_height = $data->resizeHeight;
                 $rand=Str::random(40);
                 //redimensionamos imagen original
-                $resized_image=$this->methods->redimensionar($path_image,$resize_width,$resize_height,public_path("storage")."/".$original_image->path.$rand.".".$original_image->ext);
+                $path_newimage=public_path("storage")."/".$original_image->path.$rand.".".$original_image->ext;
+                $resized_image=$this->methods->redimensionar($path_image,$resize_width,$resize_height,$path_newimage);
 
                 //recortamos imagen
                 $canvas = imagecreatetruecolor($data->width,$data->height);
@@ -551,16 +552,18 @@ class ImageController extends Controller
 
                 imagecopy($canvas,$image,0,0,$data->x,$data->y,$data->width,$data->height);
                 $this->methods->export_image($canvas,$resized_image[0],$image_type);
+                list($newwidth,$newheight,$newimagetype)=getimagesize($path_newimage);
+                $size=filesize($path_newimage);
                 Image::create([
                     "title"=>"crop_".$original_image->title,
                     "detail"=>NULL,
-                    "width" =>$data->width,
-                    "height" =>$data->height,
+                    "width" =>$newwidth,
+                    "height" =>$newheight,
                     "path" => $original_image->path,
                     "random_name"=>$rand.".".$original_image->ext,
                     "thumb" => NULL,
                     "ext" => $original_image->ext,
-                    "size" =>$original_image->size,
+                    "size" =>$size,
                     "space_color"=>$original_image->space_color,
                     "user_id" => $user->id
                 ]);
@@ -642,11 +645,13 @@ class ImageController extends Controller
                 }
             }
             $rand=Str::random(40);
-            $path_new_image=public_path("storage")."/".$test->path.$rand.".".$test->ext;
+            $path_newimage=public_path("storage")."/".$test->path.$rand.".".$test->ext;
             //$path_image=$test->path.$rand.'.'.$test->ext;
-            $this->methods->export_image($im,$path_new_image,$image_type);
-            $size=filesize($path_image);
+            $this->methods->export_image($im,$path_newimage,$image_type);
+            $size=filesize($path_newimage);
             
+            //para el width y el height mantenemos los mismos de la imagen original, 
+            //obtenidos con getimagesize 
             //insertar en la db
             $image=Image::create([
                 "title"=>"filtered_".$test->title,
@@ -1892,7 +1897,8 @@ class ImageController extends Controller
 
         }
         $rand=Str::random(40);
-        $ruta=public_path("storage")."/img/".$email."/".$rand.".png";
+        $path="/img/".$email."/";
+        $ruta=public_path("storage").$path.$rand.".png";
         //necesario pasar \" con $input_wm en lugar de concatenar para que detecte los espacios de la cadena
 
         exec("convert -background transparent -fill '$color' -font ".$font." -pointsize ".$font_size." label:\"$input_wm\" ".$ruta);
@@ -1916,6 +1922,13 @@ class ImageController extends Controller
         $ext=strtolower($type);
         $im=new Imagick($ruta);
         $space_color=$this->getSpaceColorStr($im->getImageColorspace());
+        //creamos thumbnail para poder seleccionarlo desde el setWatermark
+        $rand2=Str::random(40);
+        //$im=new Imagick($ruta);
+        $im->thumbnailImage(100,100,true,true);        
+        $im->writeImage(public_path("storage")."/".$path.$rand2.".".$ext);
+        $thumb=$rand2.".".$ext;
+        
         $image=Image::create([
             "title"=>"watermark",
             "detail"=>NULL,
@@ -1923,15 +1936,14 @@ class ImageController extends Controller
             "height"=>$height,
             "path"=>"img/".$email."/",
             "random_name"=>$rand.".png",
-            "thumb" => NULL,
+            "thumb" => $thumb,
             "ext"=>$type,
             "size"=>$size,
             "space_color"=>$space_color,
             "user_id"=>$user->id
         ]);
 
-
-        return response()->json(["image"=>$type]);
+        return response()->json(["image"=>$image]);
     }
 
 //Información de interés:
