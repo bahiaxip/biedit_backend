@@ -22,7 +22,7 @@ Route::group(["middleware"=>"auth:api"],function(){
 
 	//El sistema de autenticación de Laravel no permite utilizar el método updateUser() dentro de Auth/LoginController o Auth/RegisterController, no permite autenticar el token aun siendo enviado,por tanto se ha incluido en HomeController
 	Route::post("update","HomeController@updateUser");
-
+	Route::get("images/","ImageController@index");
 	
 	Route::post("images","ImageController@store");
 	Route::post("image/{image}","ImageController@destroy");
@@ -31,7 +31,7 @@ Route::group(["middleware"=>"auth:api"],function(){
 });
 Route::post("images/delete","ImageController@destroyList");
 
-Route::get("images/","ImageController@index");
+
 Route::post("filter","ImageController@setFilter");
 Route::post("polygon","ImageController@setPolygon");
 Route::post("effect","ImageController@setEffect");

@@ -43,44 +43,48 @@ class ImageController extends Controller
 
     }
     public function index(Request $request)
-    {        
-        if($request->post("api_token")){
+    {   
+        try{     
+            if($request->post("api_token")){
 
-            $api_token=$request->post("api_token");
-            $email=$request->post("email");
+                $api_token=$request->post("api_token");
+                $email=$request->post("email");
 
-            
-            $user=User::where("api_token",$api_token)->where("email",$email)->first();
-            if(!$user){
-                //return ...
-            }
-            //si existe total está destinado para el efecto composite, tb se //podría filtrar para no incluir el elemento que contiene la imagen
-            //principal pero se realiza en el frontend con computed
-            if($request->post("total")){
-                $image=Image::orderBy("id","DESC")->where("user_id",$user->id)->whereNotNull("thumb")->get();
-                return response()->json(["images"=>$image]);
-            }
-            $image=Image::orderBy("id","DESC")->where("user_id",$user->id)->paginate(10);
-
-        //En caso eliminar una imagen se asigna la misma página en la que se está
-        //eliminando, pero si es la última de la página que reste una página y se 
-        //vaya a la anterior, siempre y cuando no sea la primera página(current_page)
-
-        //Para acceder a una de las propiedades protected como current_page es necesario lo siguiente:
-            $current_page=json_decode($image->toJSON())->current_page;
-            //si no quedan resultados en esa página redirige a la página 
-            //anterior, siempre que no sea la página 0
-            if(count($image)==0 && $current_page != 0){
-                $page=Request()->page;
-                //cambiamos el page (que trae la url) a la página anterior si en esa 
-                //página no quedan resultados
-                Request()->merge(["page"=>$page-1]);
-                //y volvemos a realizar la consulta con el page cambiado
+                
+                $user=User::where("api_token",$api_token)->where("email",$email)->first();
+                if(!$user){
+                    //return ...
+                }
+                //si existe total está destinado para el efecto composite, tb se //podría filtrar para no incluir el elemento que contiene la imagen
+                //principal pero se realiza en el frontend con computed
+                if($request->post("total")){
+                    $image=Image::orderBy("id","DESC")->where("user_id",$user->id)->whereNotNull("thumb")->get();
+                    return response()->json(["images"=>$image]);
+                }
                 $image=Image::orderBy("id","DESC")->where("user_id",$user->id)->paginate(10);
+
+            //En caso eliminar una imagen se asigna la misma página en la que se está
+            //eliminando, pero si es la última de la página que reste una página y se 
+            //vaya a la anterior, siempre y cuando no sea la primera página(current_page)
+
+            //Para acceder a una de las propiedades protected como current_page es necesario lo siguiente:
+                $current_page=json_decode($image->toJSON())->current_page;
+                //si no quedan resultados en esa página redirige a la página 
+                //anterior, siempre que no sea la página 0
+                if(count($image)==0 && $current_page != 0){
+                    $page=Request()->page;
+                    //cambiamos el page (que trae la url) a la página anterior si en esa 
+                    //página no quedan resultados
+                    Request()->merge(["page"=>$page-1]);
+                    //y volvemos a realizar la consulta con el page cambiado
+                    $image=Image::orderBy("id","DESC")->where("user_id",$user->id)->paginate(10);
+                }
+                //$ima=json_decode($image);
+            
+            return $image;    
             }
-            //$ima=json_decode($image);
-        
-        return $image;    
+        }catch(Exception $ex){
+            return response()->json(["error"=>"Se originó un error en el servidor, index(): ",$ex->getMessage()]);
         }
 
         
@@ -350,6 +354,7 @@ class ImageController extends Controller
         }   
         
     }
+    //redimensionar
     public function resizeImage(Request $request){
         try{
             if($request){
@@ -393,7 +398,7 @@ class ImageController extends Controller
                                 "space_color"=>$image_db->space_color,
                                 "user_id"=>$user->id
                             ]);
-                        return response()->json(["message" => $resizedImage[0]]);     
+                        return response()->json(["message" => "La imagen se ha almacenado en el álbum con las nuevas dimensiones"]);     
                         //return $resizedImage;
                         //return response()->json(["error"=>$resizedImage]);    
                     }else{
@@ -559,7 +564,7 @@ class ImageController extends Controller
                     "space_color"=>$original_image->space_color,
                     "user_id" => $user->id
                 ]);
-                return response()->json(["message" => "La imagen se ha recortado y ha sido almacenada en el álbum"]);
+                return response()->json(["message" => "Se ha creado la nueva imagen y ha sido almacenada en el álbum"]);
             }else{
                 return response()->json(["error" => "Faltan datos en el envío"]);
             }
