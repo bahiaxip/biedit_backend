@@ -98,6 +98,7 @@ class ImageController extends Controller
     
     public function store(Request $request)
     {   
+        
     // opcion 1 para obtener Bearer Token (contiene el 'Bearer' delante)
         //if($request->header('Authorization')){
     //opción2 para obtener Bearer Token (solo token)
@@ -110,8 +111,35 @@ class ImageController extends Controller
             
 
             $user=User::where("api_token",$api_token)->where("email",$email)->first();
-            //si existe imagen se sube al 
-            if($request->file("images")){
+            //declaramos variables para el alcance en la condición de base64 y en la 
+            //condición de objeto File
+            $img;
+            $path_image;
+            $ext;
+            $title;
+            $detail;
+
+            //si es base64 (necesaria para la captura de imagen en la opción de webcam)
+            if($request->post("base64")){
+                //guardado rápido base64 en png (con Storage)
+                
+                $base64=$request->post("base64");
+                preg_match("/^data:image\/(.*);base64/i",$base64, $ext_base64);
+                //asignamos la extensión a $ext
+                $ext=$ext_base64[1];
+                $img=base64_decode(preg_replace('#^data:image/\w+;base64,#i','',$base64));
+                $rand=Str::random(40);
+                $path_image="img/".$email."/".$rand.".".$ext;
+                Storage::disk("public")->put($path_image,$img);
+                //$path_image=Storage::disk("public")->url("img/".$email."/".$rand.".".$ext);
+                
+                //código aleatorio para el título
+                $rand_xs=Str::random(10);
+                $title="cam_".$rand_xs;
+                $detail=NULL;
+             
+             //si existe imagen (no es base64) se sube al server
+            }else if($request->file("images")){
                 $images=$request->file("images");
                 //obtenemos nombre con File Storage de Laravel
                 $name=$images[0]->getClientOriginalName();                
@@ -121,8 +149,8 @@ class ImageController extends Controller
                 //obtenemos titulo, como laravel genera automáticamente un nombre
                 //aleatorio no es necesario comprobar si existe más de un punto
                 //en el nombre de la imagen, necesario para poder dividir de 
-                //forma segura con explode. Por tanto nos ahorramos esa comprobación
-                //con array_pop eliminamos el último elemento del array creado con explode y con implode volvemos a convertir en string
+                //forma segura con explode. Por tanto nos ahorramos esa comprobación.
+                //Con array_pop eliminamos el último elemento del array creado con explode y con implode volvemos a convertir en string
                 $title=explode(".",$name);
                 array_pop($title);
                 $title=implode("",$title);
@@ -145,6 +173,9 @@ class ImageController extends Controller
         //disco por defecto
                 //$path_image=$images[0]->storeAs("img/bahiaxip2@hotmail.com","nombre.jpg","public");
                 $path_image=$images[0]->store("img/".$email,"public");
+            }else{
+                return response()->json(["message" => "No existe directorio de imágenes"]);
+            }
                 $size=Storage::disk("public")->size($path_image);
         //opción 1 obtener datos
         //obtener datos de imagen mediante public_path("storage") y $path_image
@@ -342,9 +373,7 @@ class ImageController extends Controller
                     //$file=$_FILES["images"];
                     //return response()->json(["data" => $file]);
 */
-            }else{
-                return response()->json(["message" => "No existe directorio de imágenes"]);
-            }
+            
             
             
             //$image = Image::create($request->all());
@@ -459,6 +488,9 @@ class ImageController extends Controller
                 //permite asignar permisos más restrictivos
                 //Storage::delete("/public/".$image->path.$image->random_name);
                 Storage::disk("public")->delete($image->path.$image->random_name);
+                if(isset($image->thumb)){
+                    Storage::disk("public")->delete($image->path.$image->thumb);
+                }
                 //$image=Storage::disk("local");
             }
             //si no existe $page o es null es pk la solicitud es del método processAll()
@@ -567,7 +599,7 @@ class ImageController extends Controller
                     "space_color"=>$original_image->space_color,
                     "user_id" => $user->id
                 ]);
-                return response()->json(["message" => "Se ha creado la nueva imagen y ha sido almacenada en el álbum"]);
+                return response()->json(["message" => "Se ha creado una nueva imagen y ha sido almacenada en el álbum"]);
             }else{
                 return response()->json(["error" => "Faltan datos en el envío"]);
             }
@@ -945,7 +977,9 @@ class ImageController extends Controller
 
             
             $size=filesize($path_newimage);
-
+            if($size>4000000){
+                return response()->json(["message"=>"La imagen final es demasiado grande"]);
+            }
             list($newwidth,$newheight,$newimage_type)=getimagesize($path_newimage);
             
             if($effect=="separate_channel" || $effect=="space_color"){
