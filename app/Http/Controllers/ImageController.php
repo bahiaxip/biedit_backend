@@ -130,6 +130,7 @@ class ImageController extends Controller
                 $img=base64_decode(preg_replace('#^data:image/\w+;base64,#i','',$base64));
                 $rand=Str::random(40);
                 $path_image="img/".$email."/".$rand.".".$ext;
+            //almacenamos (si es base64)
                 Storage::disk("public")->put($path_image,$img);
                 //$path_image=Storage::disk("public")->url("img/".$email."/".$rand.".".$ext);
                 
@@ -172,6 +173,7 @@ class ImageController extends Controller
         //si no se incluye segundo parámetro al método store se asigna el 
         //disco por defecto
                 //$path_image=$images[0]->storeAs("img/bahiaxip2@hotmail.com","nombre.jpg","public");
+            //almacenamos (si es objeto image)
                 $path_image=$images[0]->store("img/".$email,"public");
             }else{
                 return response()->json(["message" => "No existe directorio de imágenes"]);
@@ -196,14 +198,62 @@ class ImageController extends Controller
                 //chmod(public_path("storage")."/".$path."hola.jpg",777);
                 $thumb=NULL;
                 $space_color=NULL;
+                $resolution=NULL;
                 if($im=new Imagick(public_path("storage")."/".$path.$random_name)){
                     $space_color_int=$im->getImageColorspace();
                     $values=["UNDEFINED","RGB","GRAY","TRANSPARENT","OHTA","LAB","XYZ","YCBCR","YCC","YIQ","YPBPR","YUV","CMYK","SRGB","HSB","HSL","HWB","REC601LUMA","REC601YCBCR","REC709LUMA","REC709YCBCR","LOG","CMY","LUV","HCL","LCH","LMS","LCHAB","LCHUV","SCRGB","HSI","HSV","HCLP","YDBDR",];
                     $space_color=$values[$space_color_int];
+                //creamos thumbnail
                     $im->thumbnailImage(100,100,true,true);
                     $im->writeImage(public_path("storage")."/".$path.$rand.".".$ext);
                     $thumb=$rand.".".$ext;
-                    
+                    //info de imagen identifyimage
+                    //$resolution=$im->identifyimage();
+            //muestra de objeto devuelto por identifyimage()
+                /*
+                    "image": {
+                        "imageName": "/var/www/biedit_backend/public/storage/img/bahiaxip@hotmail.com/HEgYwdapQokQNnDDnzTul3fWMJdNg6ovZkqC5reX.png",
+                        "mimetype": "image/png",
+                        "format": "PNG (Portable Network Graphics)",
+                        "units": "Undefined",
+                        "colorSpace": "sRGB",
+                        "type": "TrueColorAlpha",
+                        "compression": "Zip",
+                        "fileSize": "316797B",
+                        "geometry": {
+                            "width": 100,
+                            "height": 100
+                        },
+                        "resolution": {
+                            "x": 0,
+                            "y": 0
+                        },
+                        "signature": "b18f7408e8fa92a3b9a3d2932e6a680fcfcd4674744fdd1883063fcfa555ba71"
+                    }
+                */
+                    //$resolution=$im->getImageResolution();
+            //muestra de objeto devuelto por getImageResolution()
+                /*
+                    "image": {
+                        "x": 0,
+                        "y": 0
+                    }
+                */
+            //El método setResolution o setImageResolution se recomienda aplicarlo 
+            //antes al recurso imagick (sin archivo) y después con readImage leer la 
+            //imagen, (con uno de ellos se debe hacer con la imagen cargada si no, da error de que no puede procesar un objeto vacío)
+//anulado por el momento, pendiente para próxima característica
+//el resolution es para preparar la característica de imagen de foto de DNI en una plantilla de 10X15 (formato estandar para fotos)
+    //DNI
+    //píxeles: 378px X 508px a 300dpi, centímetros: 3.2 X 2.6, pulgadas: 1,275 X 1,024
+                    //$im2=new Imagick(public_path("storage")."/".$path_image);
+                    //$im2->setImageResolution(72,72);
+                    //$im2->setImageResolution(300,300);
+                    //$im2->setImageFormat("jpg");
+                    //$im2->setImageUnits(Imagick::RESOLUTION_PIXELSPERINCH);
+                    //$im2->writeImage(public_path("storage")."/".$path_image);
+                    //$im2->readImage();
+                    //$resolution=$im2->identifyimage();
                 }
                 //$datas=public_path("storage")."/".$path."hola.jpg";
                     
@@ -977,7 +1027,7 @@ class ImageController extends Controller
 
             
             $size=filesize($path_newimage);
-            if($size>4000000){
+            if($size>3000000){
                 return response()->json(["message"=>"La imagen final es demasiado grande"]);
             }
             list($newwidth,$newheight,$newimage_type)=getimagesize($path_newimage);
