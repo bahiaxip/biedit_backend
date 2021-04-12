@@ -79,49 +79,29 @@ class MethodsImage{
             }
             //$img_original=imagecreatefromjpeg($rutaImagenOriginal);
 
-            //Se define el máximo ancho y alto que tendrá la imagen final
-            
-            $max_ancho=$nuevoAncho;
-            $max_alto=$nuevoAlto;
+            //Límites máximos
+    //Se podrían asignar los límites desde el Global.js en el FrontEnd
+            $max_ancho=1920;
+            $max_alto=1280;
 
             //Ancho y alto de la imagen original
             list($ancho,$alto)=getimagesize($image);
 
-            //Se calcula ancho y alto de la imagen final
-            $x_ratio=$max_ancho/$ancho;
-            $y_ratio=$max_alto/$alto;
+    //Establecer límites máximos
 
-        //Nota: Con el siguiente fragmento de código, calculamos el ancho y alto que 
-        //tendrá la imagen final. Importante destacar que se guardan las proporciones 
-        //de la imagen original.
-            //si se ha activado la redimensión libre asignamos el ancho y alto tal como vienen
-            if($freeResize==true){
-                $ancho_final=$nuevoAncho;
-                $alto_final=$nuevoAlto;
-            }
-            //Si el ancho y el alto de la imagen no superan los máximos,
-            //ancho final y alto final son los que tiene actualmente
-            elseif(($ancho<=$max_ancho) && ($alto<=$max_alto))
-            {
-                $ancho_final=$ancho;
-                $alto_final=$alto;
-            }
-            //si proporción horizontal*alto mayor que el alto máximo,
-            //alto final es alto por la proporción horizontal
-            //es decir, le quitamos al ancho, la misma proporción que le quitamos al alto
-
-            elseif(($x_ratio*$alto) < $max_alto)
-            {
-                $alto_final=ceil($x_ratio * $alto);
+            $ancho_final=$nuevoAncho;
+            $alto_final=$nuevoAlto;    
+            
+            if($nuevoAncho > $max_ancho){
+                //establecemos el ancho máximo y obtenemos proporcion
                 $ancho_final=$max_ancho;
+                $alto_final=round(($max_ancho*$alto)/$ancho);
+
             }
-
-            //Igual que antes pero a la inversa
-
-            else
-            {
-                $ancho_final=ceil($y_ratio*$ancho);
-                $alto_final=$max_alto;//
+            else if($nuevoAlto > $max_alto){
+                $alto_final=$max_alto;
+                $ancho_final=round(($max_alto*$ancho)/$alto);
+                //establecemos el alto máximo y obtenemos proporción
             }
 
             //Ya tenemos el tamaño final de la imagen, ahora tenemos que redimensionar 
